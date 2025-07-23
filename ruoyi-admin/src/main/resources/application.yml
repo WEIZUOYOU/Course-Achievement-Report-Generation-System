@@ -3,15 +3,19 @@ ruoyi:
   # 名称
   name: RuoYi
   # 版本
-  version: 3.8.9
+  version: ${revision}
   # 版权年份
-  copyrightYear: 2025
-  # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
-  profile: D:/ruoyi/uploadPath
+  copyrightYear: 2023
+  # 实例演示开关
+  demoEnabled: true
+  # 文件路径 - 修改为项目相对路径
+  profile: ${user.dir}/uploadPath
   # 获取ip地址开关
   addressEnabled: false
-  # 验证码类型 math 数字计算 char 字符验证
+  # 验证码类型 math 数组计算 char 字符验证
   captchaType: math
+  # 在线表格路径
+  luckysheet-path: file:${user.dir}/ruoyi-ui/public/luckysheet/
 
 # 开发环境配置
 server:
@@ -20,11 +24,18 @@ server:
   servlet:
     # 应用的访问路径
     context-path: /
+    # 设置编码
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
   tomcat:
     # tomcat的URI编码
     uri-encoding: UTF-8
     # 连接数满后的排队数，默认为100
     accept-count: 1000
+    # 连接超时时间（毫秒）
+    connection-timeout: 300000  # 5分钟
     threads:
       # tomcat最大线程数，默认为200
       max: 800
@@ -47,24 +58,42 @@ user:
 
 # Spring配置
 spring:
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+    resources:
+      static-locations:
+        classpath:/META-INF/resources/,
+        classpath:/resources/,
+        classpath:/static/,
+        classpath:/public/,
+        file:${user.dir}/ruoyi-ui/public/,
+        file:${user.dir}/uploadPath/
   # 资源信息
   messages:
     # 国际化资源文件路径
     basename: i18n/messages
+    encoding: UTF-8
   profiles:
     active: druid
   # 文件上传
   servlet:
     multipart:
       # 单个文件大小
-      max-file-size: 10MB
+      max-file-size:  10MB
       # 设置总上传的文件大小
-      max-request-size: 20MB
+      max-request-size:  20MB
   # 服务模块
   devtools:
     restart:
       # 热部署开关
       enabled: true
+  # HTTP编码配置
+  http:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
   # redis 配置
   redis:
     # 地址
@@ -127,3 +156,13 @@ xss:
   excludes: /system/notice
   # 匹配链接
   urlPatterns: /system/*,/monitor/*,/tool/*
+
+# Python配置
+python:
+  # Python可执行文件路径，可以使用以下任一方式：
+  # 1. 绝对路径（推荐）：如 C:/Python313/python.exe
+  # 2. 相对路径：如 python（需要在系统PATH中）
+  # 3. 自动检测：设置为 auto 将自动尝试找到Python
+  executable: python
+  script:
+    path: classpath:scripts

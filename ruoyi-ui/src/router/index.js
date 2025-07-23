@@ -87,6 +87,27 @@ export const constantRoutes = [
         meta: { title: '个人中心', icon: 'user' }
       }
     ]
+  },
+  {
+    path: '/tool',
+    component: Layout,
+    redirect: 'noRedirect',
+    name: 'Tool',
+    meta: { title: '系统工具', icon: 'tool' },
+    children: [
+      {
+        path: 'luckysheet',
+        component: () => import('@/views/luckysheet/index'),
+        name: 'Luckysheet',
+        meta: { title: '在线表格', icon: 'excel' }
+      },
+      {
+        path: 'assessment',
+        component: () => import('@/views/luckysheet/assessment'),
+        name: 'Assessment',
+        meta: { title: '课程目标达成评价', icon: 'chart' }
+      }
+    ]
   }
 ]
 
@@ -159,6 +180,19 @@ export const dynamicRoutes = [
         component: () => import('@/views/tool/gen/editTable'),
         name: 'GenEdit',
         meta: { title: '修改生成配置', activeMenu: '/tool/gen' }
+      }
+    ]
+  },
+  {
+    path: '/iframe',
+    component: Layout, // 使用若依的布局组件
+    hidden: true,     // 不在侧边栏显示
+    children: [
+      {
+        path:'index',
+        component: () => import('@/views/iframe/index'),
+        name: 'Iframe',
+        meta: { title: 'Iframe嵌入页' }
       }
     ]
   }

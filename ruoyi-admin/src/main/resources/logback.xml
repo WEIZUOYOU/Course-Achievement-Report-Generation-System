@@ -7,8 +7,9 @@
 
 	<!-- 控制台输出 -->
 	<appender name="console" class="ch.qos.logback.core.ConsoleAppender">
-		<encoder>
+		<encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
 			<pattern>${log.pattern}</pattern>
+			<charset>UTF-8</charset>
 		</encoder>
 	</appender>
 	
@@ -22,8 +23,9 @@
 			<!-- 日志最大的历史 60天 -->
 			<maxHistory>60</maxHistory>
 		</rollingPolicy>
-		<encoder>
+		<encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
 			<pattern>${log.pattern}</pattern>
+			<charset>UTF-8</charset>
 		</encoder>
 		<filter class="ch.qos.logback.classic.filter.LevelFilter">
             <!-- 过滤的级别 -->
@@ -44,8 +46,9 @@
 			<!-- 日志最大的历史 60天 -->
 			<maxHistory>60</maxHistory>
         </rollingPolicy>
-        <encoder>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <pattern>${log.pattern}</pattern>
+			<charset>UTF-8</charset>
         </encoder>
         <filter class="ch.qos.logback.classic.filter.LevelFilter">
             <!-- 过滤的级别 -->
@@ -66,8 +69,9 @@
             <!-- 日志最大的历史 60天 -->
             <maxHistory>60</maxHistory>
         </rollingPolicy>
-        <encoder>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <pattern>${log.pattern}</pattern>
+			<charset>UTF-8</charset>
         </encoder>
     </appender>
 	

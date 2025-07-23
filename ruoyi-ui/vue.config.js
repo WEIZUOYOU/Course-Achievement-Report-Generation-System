@@ -33,6 +33,10 @@ module.exports = {
     host: '0.0.0.0',
     port: port,
     open: true,
+    // 修复热重载websocket连接问题
+    sockHost: 'localhost',
+    sockPort: port,
+    public: 'localhost:' + port,
     proxy: {
       // detail: https://cli.vuejs.org/config/#devserver-proxy
       [process.env.VUE_APP_BASE_API]: {

@@ -798,23 +798,14 @@ public class Convert
         {
             return (String) obj;
         }
-        else if (obj instanceof byte[] || obj instanceof Byte[])
+        else if (obj instanceof byte[])
         {
-            if (obj instanceof byte[])
-            {
-                return str((byte[]) obj, charset);
-            }
-            else
-            {
-                Byte[] bytes = (Byte[]) obj;
-                int length = bytes.length;
-                byte[] dest = new byte[length];
-                for (int i = 0; i < length; i++)
-                {
-                    dest[i] = bytes[i];
-                }
-                return str(dest, charset);
-            }
+            return str((byte[]) obj, charset);
+        }
+        else if (obj instanceof Byte[])
+        {
+            byte[] bytes = ArrayUtils.toPrimitive((Byte[]) obj);
+            return str(bytes, charset);
         }
         else if (obj instanceof ByteBuffer)
         {
@@ -970,7 +961,9 @@ public class Convert
                 c[i] = (char) (c[i] - 65248);
             }
         }
-        return new String(c);
+        String returnString = new String(c);
+
+        return returnString;
     }
 
     /**
