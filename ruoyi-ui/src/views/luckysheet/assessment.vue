@@ -13,8 +13,7 @@
         <el-step title="支撑关系设置" description="设置考核方式与课程目标的支撑关系" />
         <el-step title="占比分配" description="分配各课程目标的具体占比" />
         <el-step title="试卷命题" description="设置期末试卷命题表" />
-        <el-step title="数据录入" description="填写学生成绩" />
-        <el-step title="数据处理" description="生成分析结果" />
+        <el-step title="数据录入与处理" description="填写学生成绩并生成分析结果" />
         <el-step title="报告下载" description="下载评价报告" />
       </el-steps>
 
@@ -453,84 +452,147 @@
         </el-row>
       </div>
 
-      <!-- 步骤7: 数据录入 -->
+      <!-- 步骤7: 数据录入与处理 -->
       <div v-if="currentStep === 6" class="box-card">
         <el-row :gutter="20">
           <el-col :span="24">
-            <h3>第七步：数据录入</h3>
-            <!-- 更新描述文本 -->
-            <p>请在各sheet中填写学生成绩数据（请从第一行开始填写实际数据）</p>
-            
-            <!-- 显示加载状态 -->
-            <div v-if="step7.isLoading" class="loading-overlay">
-              <el-alert title="正在加载表格模板..." type="info" :closable="false" />
+            <!-- 数据处理状态 -->
+            <div v-if="dataProcessing.status === 'processing' || 
+                      dataProcessing.status === 'saving' ||
+                      dataProcessing.status === 'extracting' ||
+                      dataProcessing.status === 'validating' ||
+                      dataProcessing.status === 'submitting'">
+              <div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+                <el-progress
+                  :percentage="dataProcessing.progress"
+                  :status="dataProcessing.status === 'error' ? 'exception' : undefined"
+                  :stroke-width="12"
+                  style="max-width: 500px; margin: 0 auto;"
+                />
+                <h3 style="margin: 20px 0 10px; color: #409EFF;">{{ dataProcessing.message }}</h3>
+                <p v-if="dataProcessing.details" style="color: #606266; margin-top: 10px;">
+                  {{ dataProcessing.details }}
+                </p>
+              </div>
+              
+              <!-- 显示正在处理的表格预览（可选） -->
+              <div v-if="dataProcessing.currentSheet" class="processing-preview">
+                <el-alert 
+                  :title="`正在处理: ${dataProcessing.currentSheet}`"
+                  type="info"
+                  :closable="false"
+                  style="margin-bottom: 15px;"
+                />
+              </div>
             </div>
             
-            <!-- 纯iframe方式 -->
-            <div class="luckysheet-fullscreen">
-              <iframe
-                ref="luckysheetFrame"
-                :src="luckysheetUrl"
-                frameborder="0"
-                width="100%"
-                height="100%"
-                @load="onLuckysheetLoad"
-              ></iframe>
-            </div>
-            
-            <!-- 添加使用提示 -->
-            <el-alert
-              title="使用说明"
-              description="请直接在表格中填写学生数据，第一行为表头，从第二行开始填写实际学生信息"
-              type="info"
-              :closable="false"
-              style="margin-bottom: 15px;"
-            />
-            
-            <div class="step-actions">
-              <el-button @click="prevStep">上一步</el-button>
-              <el-button 
-                type="primary" 
-                @click="processData"
-                :disabled="!step7.hasData"
-                :loading="processing"
-              >
-                {{ processing ? '处理中...' : '开始处理数据' }}
-              </el-button>
-              <el-button 
-                type="warning" 
-                @click="clearSheetData"
-                :disabled="step7.processing"
-              >
-                清除数据
-              </el-button>
+            <!-- 数据录入界面（非处理状态时显示） -->
+            <div v-else>
+              <h3>第七步：数据录入与处理</h3>
+              
+              <!-- 处理状态提示 -->
+              <div v-if="dataProcessing.status !== 'idle'" class="processing-result">
+                <el-alert 
+                  :title="dataProcessing.message"
+                  :type="dataProcessing.status === 'error' ? 'error' : 'success'"
+                  :closable="dataProcessing.status === 'error'"
+                  style="margin-bottom: 15px;"
+                  @close="dataProcessing.status = 'idle'"
+                />
+              </div>
+              
+              <!-- 加载状态 -->
+              <div v-if="step7.isLoading" class="loading-overlay">
+                <div style="text-align: center; padding: 40px;">
+                  <el-progress
+                    type="circle"
+                    :percentage="70"
+                    :status="undefined"
+                    :width="80"
+                  />
+                  <p style="margin-top: 15px; color: #606266;">正在加载表格模板...</p>
+                </div>
+              </div>
+              
+              <!-- 表格容器 -->
+              <div class="luckysheet-fullscreen">
+                <iframe
+                  ref="luckysheetFrame"
+                  :src="luckysheetUrl"
+                  frameborder="0"
+                  width="100%"
+                  height="100%"
+                  @load="onLuckysheetLoad"
+                ></iframe>
+              </div>
+              
+              <el-alert
+                title="使用说明"
+                description="请直接在表格中填写学生数据，第一行为表头，从第二行开始填写实际学生信息。填写完成后点击'开始处理数据'按钮。"
+                type="info"
+                :closable="false"
+                style="margin-bottom: 15px;"
+              />
+              
+              <!-- 数据状态统计 -->
+              <div v-if="table.isReady && table.lastValidCheck" class="data-statistics">
+                <el-card shadow="never" style="margin-bottom: 15px;">
+                  <div slot="header">
+                    <span style="font-weight: bold;">数据统计</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-around; text-align: center;">
+                    <div>
+                      <div style="font-size: 24px; color: #409EFF; font-weight: bold;">
+                        {{ dataProcessing.extractedData ? Object.keys(dataProcessing.extractedData.sheets || {}).length : 0 }}
+                      </div>
+                      <div style="color: #909399;">表格数量</div>
+                    </div>
+                    <div>
+                      <div style="font-size: 24px; color: #67C23A; font-weight: bold;">
+                        {{ getStudentCount() }}
+                      </div>
+                      <div style="color: #909399;">学生数量</div>
+                    </div>
+                    <div>
+                      <div style="font-size: 24px; color: #E6A23C; font-weight: bold;">
+                        {{ getLastCheckTime() }}
+                      </div>
+                      <div style="color: #909399;">最后检查</div>
+                    </div>
+                  </div>
+                </el-card>
+              </div>
+              
+              <div class="step-actions">
+                <el-button @click="prevStep" :disabled="dataProcessing.status !== 'idle'">上一步</el-button>
+                <el-button 
+                  type="primary" 
+                  @click="processData"
+                  :loading="dataProcessing.status !== 'idle'"
+                  :disabled="!table.isReady"
+                  icon="el-icon-caret-right"
+                >
+                  {{ getProcessButtonText() }}
+                </el-button>
+                <el-button 
+                  type="danger" 
+                  @click="clearSheetData"
+                  :disabled="dataProcessing.status !== 'idle'"
+                  icon="el-icon-delete"
+                >
+                  清除数据
+                </el-button>
+              </div>
             </div>
           </el-col>
         </el-row>
       </div>
 
-      <!-- 步骤8：数据处理 -->
+      <!-- 步骤8：结果展示和报告下载 -->
       <div v-if="currentStep === 7" class="box-card">
         <el-row :gutter="20">
           <el-col :span="24">
-            <h3>第八步：数据处理中</h3>
-            <div style="text-align: center; padding: 50px;">
-              <el-progress
-                :percentage="processProgress"
-                :status="processStatus || undefined"
-                :stroke-width="8"
-              />
-              <p style="margin-top: 20px; font-size: 16px;">{{ processMessage }}</p>
-            </div>
-          </el-col>
-        </el-row>
-      </div>
-
-      <!-- 步骤9：结果展示和报告下载 -->
-      <div v-if="currentStep === 8" class="box-card">
-        <el-row :gutter="20">
-          <el-col :span="24">
-            <h3>第九步：结果展示与报告下载</h3>
+            <h3>第八步：结果展示与报告下载</h3>
 
             <!-- 统计图表展示 -->
             <el-tabs v-model="activeTab" type="card">
@@ -652,15 +714,6 @@ export default {
       paperValidationMessage: '请设置试卷',
       paperValidationType: 'info',
       isStep6Valid: false,
-      
-      // 处理结果
-      configId: '',
-      reportId: '',
-      results: {},
-      activeTab: 'gradeDistribution',
-      
-      // 最终配置
-      finalConfig: null,
 
       // LuckySheet 相关
       luckysheetUrl: process.env.VUE_APP_BASE_API + "/luckysheet.html",
@@ -668,43 +721,64 @@ export default {
       // 配置文件
       examConfig: null,
     
-      // 步骤6专用状态 - 优化结构
+      // 步骤6专用状态
       step6: {
         loading: false,
         lastValidation: null
       },
       
-      // 步骤7专用状态 - 优化结构
+      // 步骤7专用状态
       step7: {
         isInitialized: true,
         isLoading: true,
         hasData: false,
         luckysheetReady: false,
-        processing: false,
-        progress: 0,
-        processMessage: '准备处理数据...',
-        fileGenerationStatus: '',
-        validationResult: {
-          isValid: false,
-          message: '等待数据验证...',
-          studentCount: 0,
-          sheetCount: 0,
-          issues: []
-        },
         lastError: null
       },
 
       // LuckySheet 数据
-      luckysheetData: null, // 添加 LuckySheet 数据存储
+      luckysheetData: null,
 
-      processing: false,
-      processProgress: 0,
-      processStatus: null,
-      processMessage: '准备处理数据...',
+      // ========== 统一的数据处理状态 ==========
+      dataProcessing: {
+        // 处理状态
+        status: 'idle', // 'idle' | 'saving' | 'extracting' | 'validating' | 'submitting' | 'processing' | 'success' | 'error'
+        progress: 0,
+        message: '',
+        details: '',
+        currentSheet: '',
+        
+        // 数据状态
+        hasSavedData: false,
+        lastSaveTime: null,
+        configId: '',
+        reportId: '',
+        
+        // 提取的数据
+        extractedData: null,
+        
+        // 处理结果
+        results: null,
+      },
+      
+      // ========== 表格相关状态 ==========
+      table: {
+        isReady: false,
+        isDataValid: false,
+        lastValidCheck: null,
+        backupKey: 'luckysheet_backup_data',
+        studentCount: 0,
+      },
+
       activeTab: 'gradeDistribution',
-      configId: '',
-      reportId: '',
-      results: {}
+      
+      // 其他配置
+      finalConfig: null,
+      csvHeaders: {
+        final: [],
+        regular: [],
+        lab: []
+      }
     }
   },
   
@@ -713,17 +787,49 @@ export default {
       return Array.from({ length: this.targetCount }, (_, i) => `目标${i + 1}`)
     },
 
-      // 验证是否有支撑关系
+    // 验证是否有支撑关系
     hasSupportRelation() {
       return this.supportRelationTable.some(row => 
         row.regular || row.lab || row.final
       )
+    },
+
+    // 新增：处理按钮文本
+    processButtonText() {
+      const status = this.dataProcessing.status
+      
+      const texts = {
+        'idle': '开始处理数据',
+        'saving': '正在保存...',
+        'extracting': '正在提取...',
+        'validating': '正在验证...',
+        'processing': '正在处理...',
+        'await': '请稍候...',
+        'error': '处理失败',
+        'success': '处理完成'
+      }
+      
+      return texts[status] || '开始处理数据'
     }
   },
   
   mounted() {
     document.title = '课程目标达成评价报告 - 若依管理系统'
     this.validateStep1()
+    
+    // 监听页面刷新或关闭
+    window.addEventListener('beforeunload', this.saveOnUnload)
+    
+    // 检查是否有未保存的数据
+    this.checkForSavedDataOnLoad()
+  },
+
+  beforeDestroy() {
+    // 移除事件监听
+    window.removeEventListener('beforeunload', this.saveOnUnload)
+    
+    // 保存最后一次数据
+    this.saveCurrentSheetData()
   },
   
   methods: {
@@ -733,10 +839,10 @@ export default {
         return
       }
 
-      // 特殊处理：步骤7不直接进入步骤8，而是调用processData
+      // 特殊处理：步骤7（数据录入与处理）跳过，因为处理完成后会直接跳转到步骤8
       if (this.currentStep === 6) {
-        this.processData() // 调用数据处理函数
-        return // 不执行常规的步骤跳转
+        console.log('步骤7不执行常规跳转，通过processData()处理')
+        return
       }
       
       // 执行步骤特定的初始化
@@ -755,6 +861,11 @@ export default {
     },
     
     prevStep() {
+      // 如果从步骤7返回步骤6，保存当前数据
+      if (this.currentStep === 6) {
+        this.saveCurrentSheetData()
+      }
+      
       if (this.currentStep > 0) {
         this.currentStep--
       }
@@ -786,15 +897,15 @@ export default {
           }
           return true
           
-        case 6: // 步骤7（数据录入）
-          return this.step7.hasData || (this.step7.validationResult && this.step7.validationResult.studentCount > 0)
+        case 6: // 步骤7（数据录入与处理）
+          // 只有在非处理状态时才能离开（返回上一步）
+          return this.dataProcessing.status === 'idle' || 
+                this.dataProcessing.status === 'success' || 
+                this.dataProcessing.status === 'error'
+
+        case 7: // 步骤8（结果展示）- 现在是步骤8
+          return this.dataProcessing.results && Object.keys(this.dataProcessing.results).length > 0
         
-        case 7: // 步骤8（数据处理）- 新增验证
-          return this.processing === false // 只有在非处理状态才能进入
-        
-        case 8: // 步骤9（结果展示）- 新增验证
-          return this.results && Object.keys(this.results).length > 0
-              
         default:
           return true
       }
@@ -837,6 +948,33 @@ export default {
         case 7: // 步骤8 -> 步骤9
           // 不需要特殊初始化，processData会自动跳转
           break
+      }
+    },
+
+    // 页面刷新或关闭前保存数据
+    saveOnUnload(event) {
+      if (this.currentStep === 6 || this.currentStep === 7) {
+        this.saveCurrentSheetData()
+        // 可选：显示确认对话框
+        // event.preventDefault()
+        // event.returnValue = '您输入的数据尚未处理，确定要离开吗？'
+      }
+    },
+    
+    // 页面加载时检查是否有保存的数据
+    checkForSavedDataOnLoad() {
+      const savedData = localStorage.getItem('luckysheet_backup_data')
+      if (savedData) {
+        const parsedData = JSON.parse(savedData)
+        const now = new Date().getTime()
+        const oneDay = 24 * 60 * 60 * 1000
+        
+        // 如果数据在一天内保存的，显示恢复提示
+        if (now - parsedData.timestamp < oneDay) {
+          this.$message.info('检测到上次未完成的表格数据，已自动恢复')
+          // 设置标记，在进入步骤7时恢复
+          this.hasSavedDataToRestore = true
+        }
       }
     },
     
@@ -1222,7 +1360,7 @@ export default {
       }
     },
 
-    // 修改步骤6的下一步处理
+    // 步骤6的下一步处理
     async handleStep6Next() {
       if (this.step6.loading) return
       
@@ -1232,16 +1370,12 @@ export default {
         // 1. 生成课程配置
         this.ensureCourseConfig()
         
-        // 2. 验证试卷结构
+        // 2. 验证试卷结构（可选，用于用户提示）
         const validationResult = this.validateExamPaper()
         
-        // 3. 特别检查期末考核的设置
-        if (this.selectedAssessmentTypes.includes('final')) {
-          const finalValidation = this.validateFinalExamStructure()
-          if (!finalValidation.isValid) {
-            this.$message.warning(finalValidation.message)
-          }
-        }
+        // 3. 直接跳转到步骤7，不再依赖examPaper配置
+        console.log('步骤6完成，使用rows数据生成期末表格')
+        console.log('rows数据详情:', this.rows)
         
         // 4. 跳转到步骤7
         this.currentStep = 6
@@ -1326,42 +1460,24 @@ export default {
         total: row.weightedTotal
       }))
 
-      // 生成试卷结构 - 修复格式
-      const examPaper = []
-      if (this.selectedAssessmentTypes.includes('final')) {
-        this.rows.forEach((row, sectionIndex) => {
-          const questions = []
-          
-          // 过滤掉分值为0的小题，并按列顺序排序
-          row.cells.forEach((cell, questionIndex) => {
-            if (cell.score > 0 && cell.target) {
-              questions.push({
-                questionNumber: questionIndex + 1, // 小题号从1开始
-                score: cell.score,
-                target: cell.target
-              })
-            }
-          })
-          
-          // 按小题号排序
-          const sortedQuestions = questions.sort((a, b) => a.questionNumber - b.questionNumber)
-          
-          if (sortedQuestions.length > 0) {
-            examPaper.push({
-              title: (sectionIndex + 1).toString(), // 大题号作为字符串，如 "1", "2"
-              questions: sortedQuestions
-            })
-          }
-        })
-      }
-
       const config = {
-        // ... 其他配置 ...
-        examPaper: examPaper,
-        assessmentTypes: [...this.selectedAssessmentTypes]
+        proportions: {
+          regular: regularGrade,
+          lab: labGrade,
+          final: finalExam
+        },
+        scores: {
+          regular: this.scores.regular || 0,
+          lab: this.scores.lab || 0,
+          final: this.scores.final || 0
+        },
+        targets: courseTargetProportions,
+        assessmentTypes: [...this.selectedAssessmentTypes],
+        // 不再需要 examPaper 字段，因为直接从 rows 生成
+        hasFinalExam: this.selectedAssessmentTypes.includes('final')
       }
       
-      console.log('生成的标准化课程配置 - examPaper:', config.examPaper)
+      console.log('生成的简化课程配置:', config)
       return config
     },
 
@@ -1496,6 +1612,14 @@ export default {
     // 统一的步骤7初始化
     initializeStep7() {
       console.log('开始初始化步骤7')
+      
+      // 检查是否需要恢复数据而不是重新初始化
+      if (this.needsDataRestore) {
+        console.log('检测到需要恢复数据，跳过重新初始化')
+        this.step7.isLoading = true
+        return
+      }
+      
       this.step7.isLoading = true
       
       // 生成模板数据（现在只是用于配置验证）
@@ -1505,61 +1629,82 @@ export default {
       this.luckysheetUrl = process.env.VUE_APP_BASE_API + "/luckysheet.html?t=" + Date.now()
     },
 
-    // iframe加载完成回调
-    async onLuckysheetLoad() {
-      console.log('LuckySheet iframe加载完成')
-      
+    // 数据存在性检查方法
+    async checkIfDataExists() {
       try {
-        // 等待Luckysheet完全初始化
-        await this.waitForLuckysheetReady()
+        const iframe = this.$refs.luckysheetFrame
+        if (!iframe || !iframe.contentWindow) {
+          console.log('iframe未就绪')
+          return false
+        }
         
-        // 通过JavaScript向iframe传递数据
-        await this.loadDataToLuckysheet()
+        const luckysheet = iframe.contentWindow.luckysheet
+        if (!luckysheet) {
+          console.log('luckysheet实例未就绪')
+          return false
+        }
         
-        this.step7.isLoading = false
-        this.step7.luckysheetReady = true
-        console.log('模板数据加载完成')
+        const allSheets = luckysheet.getAllSheets()
+        if (!allSheets || allSheets.length === 0) {
+          console.log('没有找到任何sheet')
+          return false
+        }
+        
+        // 简化数据检查逻辑 - 只要有非表头数据就认为有数据
+        let hasValidData = false
+        
+        for (const sheet of allSheets) {
+          const sheetData = luckysheet.getSheetData(sheet.id)
+          if (sheetData && sheetData.length > 1) {
+            // 从第二行开始检查（跳过表头）
+            for (let i = 1; i < sheetData.length; i++) {
+              const row = sheetData[i]
+              if (row && Array.isArray(row)) {
+                // 检查是否有任何非空单元格
+                for (let j = 0; j < row.length; j++) {
+                  const cell = row[j]
+                  if (cell && cell.v !== undefined && cell.v !== '' && cell.v != null) {
+                    hasValidData = true
+                    console.log(`发现有效数据: sheet=${sheet.name}, row=${i}, col=${j}, value=`, cell.v)
+                    break
+                  }
+                }
+                if (hasValidData) break
+              }
+            }
+          }
+          if (hasValidData) break
+        }
+        
+        console.log('数据存在性检查结果:', hasValidData)
+        return hasValidData
         
       } catch (error) {
-        console.error('加载数据失败:', error)
-        this.step7.isLoading = false
-        this.$message.error('加载表格模板失败，请刷新页面重试')
+        console.error('检查数据存在性失败:', error)
+        return false
       }
     },
 
-    // 等待Luckysheet就绪
-    waitForLuckysheetReady() {
-      return new Promise((resolve, reject) => {
-        let attempts = 0
-        const maxAttempts = 50 // 最多尝试5秒
+    // 备用数据检查方法
+    fallbackDataCheck(luckysheet, allSheets) {
+      try {
+        // 通过获取所有单元格数据来检查
+        let hasData = false
         
-        const checkLuckysheet = () => {
-          attempts++
-          
-          try {
-            const iframe = this.$refs.luckysheetFrame
-            if (!iframe || !iframe.contentWindow) {
-              throw new Error('iframe未就绪')
-            }
-            
-            const luckysheet = iframe.contentWindow.luckysheet
-            if (luckysheet && typeof luckysheet.create === 'function') {
-              console.log('Luckysheet已就绪')
-              resolve()
-            } else {
-              throw new Error('Luckysheet对象未就绪')
-            }
-          } catch (error) {
-            if (attempts >= maxAttempts) {
-              reject(new Error('Luckysheet加载超时'))
-            } else {
-              setTimeout(checkLuckysheet, 100)
-            }
+        allSheets.forEach(sheet => {
+          const range = luckysheet.getRange()
+          if (range && range.length > 1) {
+            hasData = true
           }
-        }
+        })
         
-        checkLuckysheet()
-      })
+        if (hasData) {
+          console.log('备用检查发现数据')
+          this.step7.hasData = true
+        }
+      } catch (error) {
+        console.warn('备用数据检查失败:', error)
+      }
     },
 
     // 向Luckysheet加载数据
@@ -1583,7 +1728,7 @@ export default {
             try {
               // 创建新的Luckysheet实例
               luckysheet.create({
-                container: 'luckysheet', // LuckySheet会自动查找这个id的容器
+                container: 'luckysheet',
                 lang: 'zh',
                 data: luckysheetData,
                 title: '学生成绩数据表',
@@ -1610,7 +1755,12 @@ export default {
               })
               
               console.log('Luckysheet创建成功，加载了', luckysheetData.length, '个sheet')
-              resolve()
+              
+              // 加载完成后检查是否有现有数据
+              setTimeout(() => {
+                this.checkIfDataExists()
+                resolve()
+              }, 500)
               
             } catch (error) {
               reject(new Error('创建Luckysheet失败: ' + error.message))
@@ -1727,51 +1877,11 @@ export default {
       const headers = ['班级', '学号', '姓名']
       const celldata = []
       
-      console.log('生成期末成绩表，完整配置:', config)
-      console.log('试卷结构 examPaper:', config.examPaper)
+      console.log('生成期末成绩表，直接使用rows数据')
+      console.log('rows数据:', this.rows)
       
-      // 调试：检查数据结构
-      if (config.examPaper && Array.isArray(config.examPaper)) {
-        console.log('examPaper 是数组，长度:', config.examPaper.length)
-        config.examPaper.forEach((section, index) => {
-          console.log(`第${index}个大题:`, section)
-          console.log(`- title: ${section.title}`)
-          console.log(`- questions:`, section.questions)
-        })
-      } else {
-        console.warn('examPaper 不存在或不是数组:', config.examPaper)
-      }
-      
-      // 生成小题列头 - 增强兼容性
-      if (config.examPaper && Array.isArray(config.examPaper) && config.examPaper.length > 0) {
-        config.examPaper.forEach((section) => {
-          // 确保 section 和 questions 存在
-          if (section && section.questions && Array.isArray(section.questions)) {
-            // 按小题号排序
-            const sortedQuestions = [...section.questions].sort((a, b) => 
-              (a.questionNumber || 0) - (b.questionNumber || 0)
-            )
-            
-            sortedQuestions.forEach((question) => {
-              if (question && question.score > 0) {
-                // 使用安全的方式获取大题号和小题号
-                const sectionTitle = section.title || '1'
-                const questionNumber = question.questionNumber || 1
-                const score = question.score || 0
-                
-                // 生成标准格式: "大题号.小题号（分值分）"
-                const header = `${sectionTitle}.${questionNumber}（${score}分）`
-                headers.push(header)
-                console.log(`添加列头: ${header}`)
-              }
-            })
-          }
-        })
-      } else {
-        // 备用方案：从 rows 数据生成
-        console.log('使用备用方案从 rows 生成列头')
-        this.generateHeadersFromRows(headers)
-      }
+      // 直接从rows数据生成列头 - 去掉对config.examPaper的依赖
+      this.generateHeadersFromRows(headers)
       
       console.log('最终表头:', headers)
       
@@ -1818,10 +1928,13 @@ export default {
   
     // 新增备用列头生成方法
     generateHeadersFromRows(headers) {
+      console.log('从rows数据生成列头，rows:', this.rows)
+      
       if (this.rows && this.rows.length > 0) {
         this.rows.forEach((row, rowIndex) => {
           if (row.cells && Array.isArray(row.cells)) {
             row.cells.forEach((cell, cellIndex) => {
+              // 只生成有分值的题目列头
               if (cell && cell.score > 0) {
                 const header = `${rowIndex + 1}.${cellIndex + 1}（${cell.score}分）`
                 headers.push(header)
@@ -1832,12 +1945,15 @@ export default {
         })
       }
       
-      // 如果还是没有列头，添加默认列
+      // 如果还是没有列头，添加默认列确保表格结构完整
       if (headers.length <= 3) {
-        for (let i = 1; i <= 10; i++) {
-          headers.push(`题目${i}`)
+        console.log('rows数据为空或没有有效题目，添加默认列头')
+        for (let i = 1; i <= 5; i++) {
+          headers.push(`题目${i}（0分）`)
         }
       }
+      
+      console.log('生成的列头数量:', headers.length - 3)
     },
 
     // 同时需要修改试卷验证方法，确保小题号正确
@@ -2297,7 +2413,7 @@ export default {
       return true
     },
 
-    // 清除数据（保留表头）
+    // 清除表格数据
     async clearSheetData() {
       try {
         await this.$confirm(
@@ -2310,8 +2426,10 @@ export default {
           }
         )
         
-        this.step7.isLoading = true
-        // 重新初始化步骤7
+        // 清除保存的数据
+        localStorage.removeItem(this.table.backupKey)
+        
+        // 重新初始化表格
         this.initializeStep7()
         
         this.$message.success('数据清除完成，已重新加载模板')
@@ -2319,7 +2437,7 @@ export default {
       } catch (error) {
         if (error !== 'cancel') {
           console.error('清除数据失败:', error)
-          this.$message.error('清除数据失败: ' + (error.message || error))
+          this.$message.error('清除数据失败: ' + error.message)
         }
       }
     },
@@ -2382,12 +2500,1722 @@ export default {
       }
     },
 
-    // ========== 步骤8: 结果展示和报告下载 ==========
-    getImageUrl(filename) {
-      // 在实际应用中，这里应该返回真实的图片URL
-      // 暂时使用模拟URL
-      return `/api/images/${filename}?t=${Date.now()}`
+    /**
+     * 从Luckysheet提取数据
+     */
+    async extractLuckysheetData() {
+      return new Promise((resolve, reject) => {
+        try {
+          const iframe = this.$refs.luckysheetFrame
+            
+          if (!iframe || !iframe.contentWindow) {
+            reject(new Error('表格组件未加载'))
+            return
+          }
+          
+          const luckysheet = iframe.contentWindow.luckysheet
+          if (!luckysheet || !luckysheet.getAllSheets) {
+            reject(new Error('Luckysheet实例不可用'))
+            return
+          }
+          
+          const allSheets = luckysheet.getAllSheets()
+          if (!allSheets || allSheets.length === 0) {
+            reject(new Error('未找到任何表格数据'))
+            return
+          }
+          
+          const sheets = []
+          console.log('开始提取Luckysheet数据，共', allSheets.length, '个sheet')
+
+          allSheets.forEach(sheet => {
+            try {
+              const celldata = sheet.celldata || []
+              const data = []
+
+              console.log('处理Sheet:', sheet.name, '单元格数量:', celldata.length)
+
+              // 确定数据范围
+              let maxRow = 0
+              let maxCol = 0
+              celldata.forEach(cell => {
+                maxRow = Math.max(maxRow, cell.r)
+                maxCol = Math.max(maxCol, cell.c)
+              })
+
+              console.log(`Sheet ${sheet.name} 数据范围: ${maxRow + 1}行 × ${maxCol + 1}列`)
+
+              // 构建数据矩阵
+              for (let r = 0; r <= maxRow; r++) {
+                const row = []
+                for (let c = 0; c <= maxCol; c++) {
+                  const cell = celldata.find(item => item.r === r && item.c === c)
+                  
+                  // 安全地提取单元格值
+                  let cellValue = ''
+                  if (cell && cell.v) {
+                    // 如果是对象格式的值
+                    if (typeof cell.v === 'object' && cell.v.v !== undefined) {
+                      cellValue = cell.v.v
+                    } else {
+                      // 如果是直接的值
+                      cellValue = cell.v
+                    }
+                  }
+                  
+                  // 确保值不是null或undefined
+                  if (cellValue === null || cellValue === undefined) {
+                    cellValue = ''
+                  }
+                  
+                  row.push(cellValue)
+                }
+                data.push(row)
+              }
+
+              // 验证数据有效性（至少要有表头行）
+              if (data.length > 0 && data[0].length > 0) {
+                sheets.push({
+                  name: sheet.name || `Sheet${sheets.length + 1}`,
+                  data: data
+                })
+                console.log(`Sheet ${sheet.name} 数据提取成功: ${data.length}行 × ${data[0]?.length || 0}列`)
+              } else {
+                console.warn(`Sheet ${sheet.name} 数据为空或无效`)
+              }
+              
+            } catch (error) {
+              console.error(`提取sheet ${sheet.name} 失败:`, error)
+            }
+          })
+
+          if (sheets.length === 0) {
+            reject(new Error('所有表格数据提取失败或为空'))
+            return
+          }
+
+          console.log('最终提取的数据: ', { sheets })
+          
+          // 保存到状态中
+          this.dataProcessing.extractedData = { sheets }
+          
+          // 同时返回数据用于验证
+          resolve({ sheets })
+          
+        } catch (error) {
+          console.error('提取Luckysheet数据失败:', error)
+          reject(new Error('提取表格数据失败: ' + error.message))
+        }
+      })
     },
+
+    // 添加手动检查数据的方法
+    manualCheckData() {
+      this.checkIfDataExists().then(hasData => {
+        if (hasData) {
+          this.$message.success('检测到有效数据，可以开始处理')
+        } else {
+          this.$message.warning('未检测到有效数据，请填写成绩信息')
+        }
+      })
+    },
+
+    // 重试数据处理
+    async retryProcessData() {
+      // 重置状态
+      this.resetProcessingState()
+      
+      // 重新处理
+      await this.processData()
+    },
+
+    /**
+     * 获取处理按钮文本
+     */
+    getProcessButtonText() {
+      const status = this.dataProcessing.status
+      
+      const texts = {
+        'idle': '开始处理数据',
+        'saving': '正在保存...',
+        'validating': '正在检查数据...', // 新增的检查状态
+        'extracting': '正在提取...',
+        'submitting': '正在提交...',
+        'processing': '正在处理...',
+        'success': '处理完成',
+        'error': '处理失败'
+      }
+      
+      return texts[status] || '开始处理数据'
+    },
+
+    // ========== 重构的步骤7到步骤8处理逻辑 ==========
+
+    /**
+     * 统一的数据处理入口
+     */
+    async processData() {
+      try {
+        // 1. 显示检测状态
+        console.log('开始处理数据，首先检测表格状态...')
+        
+        this.dataProcessing.status = 'validating'
+        this.dataProcessing.message = '正在检测表格状态...'
+        this.dataProcessing.progress = 10
+        this.dataProcessing.details = '检查表格组件是否就绪'
+        
+        // 2. 等待表格完全就绪
+        try {
+          const luckysheet = await this.waitForTableFullyReady()
+          console.log('表格完全就绪! sheet数量:', luckysheet.getAllSheets().length)
+          console.log('表格状态检测通过，可以安全提取数据')
+          this.table.isReady = true
+          this.dataProcessing.progress = 20
+        } catch (error) {
+          console.error('表格状态检测失败:', error)
+          this.dataProcessing.status = 'error'
+          this.dataProcessing.message = `表格未就绪: ${error.message}`
+          this.dataProcessing.progress = 0
+          
+          await this.$confirm(
+            `表格组件未完全初始化：${error.message}\n\n请尝试：\n1. 点击"重试"重新检测表格\n2. 如果持续失败，请刷新页面`,
+            '表格未就绪',
+            {
+              confirmButtonText: '重试检测',
+              cancelButtonText: '取消',
+              type: 'warning'
+            }
+          ).then(() => {
+            // 用户选择重试，重置状态后重新调用
+            this.resetProcessingState()
+            this.processData()
+          }).catch(() => {
+            // 用户取消
+            this.resetProcessingState()
+            this.$message.info('已取消数据处理')
+          })
+          return
+        }
+        
+        // 3. 检查是否有保存的数据需要恢复
+        this.dataProcessing.message = '正在检查数据状态...'
+        this.dataProcessing.progress = 25
+        
+        const savedData = localStorage.getItem(this.table.backupKey)
+        if (savedData) {
+          console.log('检测到已保存的数据')
+          this.dataProcessing.details = '检测到未完成的数据，正在恢复...'
+        }
+        
+        // 4. 提取表格数据
+        this.dataProcessing.status = 'extracting'
+        this.dataProcessing.message = '正在提取表格数据...'
+        this.dataProcessing.progress = 30
+        this.dataProcessing.details = '读取所有sheet中的学生成绩数据'
+        
+        await this.extractTableData()
+        
+        // 5. 验证提取的数据
+        this.dataProcessing.status = 'validating'
+        this.dataProcessing.message = '正在验证数据格式...'
+        this.dataProcessing.progress = 50
+        this.dataProcessing.details = '检查学号、姓名、成绩格式是否正确'
+        
+        const validationResult = await this.validateExtractedData()
+        
+        // 6. 获取学生数量
+        const studentCount = this.getStudentCount()
+        this.table.studentCount = studentCount
+        
+        // 7. 数据验证结果处理
+        if (studentCount === 0) {
+          this.dataProcessing.status = 'error'
+          this.dataProcessing.message = '未找到有效的学生数据'
+          this.dataProcessing.progress = 0
+          this.dataProcessing.details = '请填写至少一名学生的完整信息'
+          
+          await this.$alert(
+            '请在表格中填写至少一名学生的完整信息：\n\n' +
+            '1. 班级、学号、姓名（至少填写学号或姓名）\n' +
+            '2. 至少一项有效的成绩数据（正数）\n' +
+            '3. 确保数据从第二行开始填写\n\n' +
+            '当前问题：未检测到有效的学生成绩数据',
+            '数据验证失败',
+            {
+              confirmButtonText: '返回填写',
+              type: 'error'
+            }
+          )
+          
+          this.resetProcessingState()
+          return
+        }
+        
+        // 8. 显示验证结果，询问是否继续
+        if (validationResult && validationResult.issues && validationResult.issues.length > 0) {
+          const issueCount = validationResult.issues.length
+          const issueList = validationResult.issues.slice(0, 5).map(issue => `• ${issue}`).join('\n')
+          const moreIssues = issueCount > 5 ? `\n... 还有 ${issueCount - 5} 个问题` : ''
+          
+          this.dataProcessing.message = `发现 ${issueCount} 个数据问题`
+          this.dataProcessing.progress = 60
+          this.dataProcessing.details = `请确认是否继续处理`
+          
+          try {
+            await this.$confirm(
+              `共发现 ${studentCount} 名有效学生，但存在 ${issueCount} 个问题：\n\n${issueList}${moreIssues}\n\n是否继续处理？`,
+              '数据验证警告',
+              {
+                confirmButtonText: '继续处理',
+                cancelButtonText: '返回修改',
+                type: 'warning'
+              }
+            )
+          } catch {
+            // 用户取消处理
+            this.resetProcessingState()
+            this.$message.info('已取消数据处理，请修改数据后重试')
+            return
+          }
+        }
+        
+        // 9. 保存当前数据到本地存储（备份）
+        this.dataProcessing.status = 'saving'
+        this.dataProcessing.message = '正在保存数据备份...'
+        this.dataProcessing.progress = 70
+        this.dataProcessing.details = '备份数据到本地存储'
+        
+        await this.saveTableData()
+        
+        // 10. 生成配置ID（如果没有）
+        if (!this.dataProcessing.configId) {
+          this.dataProcessing.configId = this.generateConfigId()
+          console.log('生成配置ID:', this.dataProcessing.configId)
+        }
+        
+        // 11. 调用后端API处理数据
+        this.dataProcessing.status = 'submitting'
+        this.dataProcessing.message = '正在提交数据处理...'
+        this.dataProcessing.progress = 80
+        this.dataProcessing.details = `正在分析 ${studentCount} 名学生的成绩数据`
+        
+        try {
+          const response = await this.submitForProcessing()
+          
+          // 12. 处理成功
+          console.log('数据处理成功:', response)
+          
+          this.dataProcessing.status = 'processing'
+          this.dataProcessing.message = '正在生成分析报告...'
+          this.dataProcessing.progress = 90
+          this.dataProcessing.details = '计算课程目标达成度、生成统计图表'
+          
+          // 13. 跳转到结果页面
+          await this.jumpToResultsPage()
+          
+        } catch (error) {
+          console.error('数据处理失败:', error)
+          
+          this.dataProcessing.status = 'error'
+          this.dataProcessing.message = `处理失败: ${error.message}`
+          this.dataProcessing.progress = 0
+          this.dataProcessing.error = error.message
+          
+          // 记录错误日志
+          this.logProcessingError(error)
+          
+          // 显示错误信息并提供重试选项
+          await this.$confirm(
+            `数据处理失败：${error.message}\n\n是否重试？`,
+            '处理失败',
+            {
+              confirmButtonText: '重试',
+              cancelButtonText: '返回修改',
+              type: 'error'
+            }
+          ).then(() => {
+            // 用户选择重试
+            this.resetProcessingState()
+            this.processData()
+          }).catch(() => {
+            // 用户选择返回修改
+            this.returnToDataEntryWithRecovery()
+          })
+        }
+        
+      } catch (error) {
+        // 全局错误处理
+        console.error('数据处理过程中发生未预期的错误:', error)
+        
+        this.dataProcessing.status = 'error'
+        this.dataProcessing.message = `系统错误: ${error.message}`
+        this.dataProcessing.progress = 0
+        
+        this.$message.error(`数据处理失败: ${error.message}`)
+        this.logProcessingError(error)
+        
+        // 尝试恢复数据
+        await this.returnToDataEntryWithRecovery()
+      }
+    },
+
+    /**
+     * 重置处理状态
+     */
+    resetProcessingState() {
+      this.dataProcessing.status = 'idle'
+      this.dataProcessing.progress = 0
+      this.dataProcessing.message = ''
+      this.dataProcessing.details = ''
+      this.dataProcessing.error = null
+      // 不清除extractedData，保留已提取的数据用于显示
+    },
+
+    /**
+     * 返回数据录入页面并恢复数据
+     */
+    async returnToDataEntryWithRecovery() {
+      // 1. 跳回数据录入页面
+      this.currentStep = 6
+      
+      // 2. 等待页面切换完成
+      await this.$nextTick()
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // 3. 尝试恢复数据
+      try {
+        const restored = await this.restoreTableData()
+        
+        if (restored) {
+          this.$message({
+            type: 'warning',
+            message: '已恢复您填写的数据，请检查后重试',
+            duration: 5000
+          })
+        }
+      } catch (restoreError) {
+        console.error('恢复数据失败:', restoreError)
+      }
+      
+      // 4. 重置处理状态
+      this.resetProcessingState()
+    },
+
+    /**
+     * 自动数据检查
+     */
+    async autoCheckData() {
+      try {
+        console.log('开始自动数据检查...')
+        
+        // 1. 检查表格状态 - 添加更多验证
+        if (!this.table.isReady) {
+          console.log('表格状态: 未就绪，检查iframe是否存在...')
+          
+          // 检查iframe是否存在
+          if (!this.$refs.luckysheetFrame) {
+            this.$message.error('表格组件未加载，请刷新页面')
+            return false
+          }
+          
+          // 检查iframe是否已加载
+          const iframe = this.$refs.luckysheetFrame
+          if (!iframe.contentWindow) {
+            this.$message.warning('表格正在加载中，请稍候...')
+            
+            // 等待iframe加载
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            
+            // 再次检查
+            if (!iframe.contentWindow) {
+              this.$message.error('表格加载超时，请刷新页面')
+              return false
+            }
+          }
+          
+          // 更新表格状态
+          this.table.isReady = true
+        }
+        
+        this.dataProcessing.status = 'validating'
+        this.dataProcessing.message = '正在检查表格状态...'
+        this.dataProcessing.progress = 10
+        this.dataProcessing.details = '检查表格组件是否就绪'
+        
+        // 2. 获取表格实例（添加更详细的错误处理）
+        let luckysheet
+        try {
+          console.log('尝试获取表格实例...')
+          luckysheet = await this.waitForTableReady()
+          console.log('表格实例获取成功:', !!luckysheet)
+        } catch (error) {
+          console.error('获取表格实例失败:', error)
+          
+          // 尝试备选方案：直接获取
+          try {
+            console.log('尝试直接获取表格实例...')
+            const iframe = this.$refs.luckysheetFrame
+            if (iframe && iframe.contentWindow) {
+              luckysheet = iframe.contentWindow.luckysheet
+              console.log('直接获取结果:', !!luckysheet)
+            }
+          } catch (directError) {
+            console.error('直接获取也失败:', directError)
+          }
+          
+          if (!luckysheet) {
+            this.$message.error('表格组件未加载完成，请刷新页面重试')
+            return false
+          }
+        }
+        
+        if (!luckysheet) {
+          this.$message.error('无法获取表格实例')
+          return false
+        }
+        
+        this.dataProcessing.progress = 20
+        this.dataProcessing.message = '正在检查表格数据...'
+        
+        // 3. 检查表格是否有数据
+        try {
+          const allSheets = luckysheet.getAllSheets ? luckysheet.getAllSheets() : []
+          console.log('表格中的sheet数量:', allSheets.length)
+          
+          if (allSheets.length === 0) {
+            this.$message.warning('表格中没有数据，请填写学生成绩信息')
+            
+            this.dataProcessing.message = '表格中没有数据'
+            this.dataProcessing.progress = 30
+            this.dataProcessing.details = '请填写至少一行学生数据'
+            
+            // 延迟显示以让用户看到进度
+            await new Promise(resolve => setTimeout(resolve, 1500))
+            return false
+          }
+        } catch (sheetError) {
+          console.error('检查表格数据失败:', sheetError)
+          this.$message.warning('表格数据检查失败，请确保已正确填写数据')
+          return false
+        }
+        
+        this.dataProcessing.progress = 30
+        this.dataProcessing.message = '正在提取表格数据...'
+        
+        // 4. 提取数据
+        try {
+          await this.extractTableData()
+        } catch (extractError) {
+          console.error('提取数据失败:', extractError)
+          this.$message.error(`数据提取失败: ${extractError.message}`)
+          return false
+        }
+        
+        this.dataProcessing.progress = 60
+        this.dataProcessing.message = '正在验证数据格式...'
+        
+        // 5. 验证数据
+        try {
+          await this.validateExtractedData()
+        } catch (validateError) {
+          console.error('验证数据失败:', validateError)
+          this.$message.error(`数据验证失败: ${validateError.message}`)
+          return false
+        }
+        
+        // 6. 获取学生数量
+        const studentCount = this.getStudentCount()
+        
+        if (studentCount === 0) {
+          this.$message.warning('未找到有效的学生数据，请填写成绩信息')
+          
+          // 显示详细的指导信息
+          await this.$alert(
+            '请在表格中填写至少一名学生的完整信息：\n\n' +
+            '1. 班级、学号、姓名（至少填写一项）\n' +
+            '2. 至少一项有效的成绩数据（正数）\n' +
+            '3. 确保数据从第二行开始填写\n\n' +
+            '当前问题：表格已加载但未检测到有效的学生数据',
+            '数据填写指南',
+            {
+              confirmButtonText: '确定',
+              type: 'warning'
+            }
+          )
+          
+          this.resetProcessingState()
+          return false
+        }
+        
+        // 7. 检查通过，显示提示信息
+        this.dataProcessing.message = `数据检查通过，共发现 ${studentCount} 名学生数据`
+        this.dataProcessing.progress = 80
+        this.dataProcessing.details = '数据格式正确，准备开始处理'
+        
+        console.log('自动数据检查通过，学生数量:', studentCount)
+        
+        // 短暂显示成功消息
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+        return true
+        
+      } catch (error) {
+        console.error('自动数据检查过程中发生未预期的错误:', error)
+        
+        // 更友好的错误提示
+        let userMessage = '数据处理检查失败'
+        
+        if (error.message.includes('表格') || error.message.includes('Luckysheet')) {
+          userMessage = '表格组件加载异常，请刷新页面后重试'
+        } else if (error.message.includes('网络') || error.message.includes('连接')) {
+          userMessage = '网络连接异常，请检查网络后重试'
+        } else if (error.message.includes('超时')) {
+          userMessage = '操作超时，请稍后重试'
+        }
+        
+        this.$message.error(`${userMessage}: ${error.message}`)
+        
+        // 重置处理状态
+        this.resetProcessingState()
+        
+        return false
+      }
+    },
+
+    /**
+     * 启动处理流程
+     */
+    async startDataProcessing() {
+      // 设置处理状态
+      this.dataProcessing.status = 'saving'
+      this.dataProcessing.progress = 5
+      this.dataProcessing.message = '正在保存当前数据...'
+      this.dataProcessing.details = '保存表格数据到本地存储'
+      
+      // 保存当前表格数据
+      const saved = await this.saveTableData()
+      
+      if (!saved) {
+        this.dataProcessing.details = '表格数据为空，将继续处理'
+      }
+      
+      // 生成配置ID
+      this.dataProcessing.configId = this.generateConfigId()
+      
+      console.log('数据处理启动，配置ID:', this.dataProcessing.configId)
+      console.log('数据检查已通过，学生数量:', this.getStudentCount())
+    },
+
+    /**
+     * 执行处理步骤序列
+     */
+    async executeProcessingSteps() {
+      const steps = [
+        {
+          name: 'extracting',
+          action: () => this.submitForProcessing(), // 直接提交处理
+          progress: 30,
+          message: '正在提交数据处理...',
+          details: '将数据发送到后端进行处理'
+        },
+        {
+          name: 'processing',
+          action: () => this.awaitProcessingResult(),
+          progress: 70,
+          message: '正在处理数据，请稍候...',
+          details: '分析学生成绩并生成统计结果'
+        }
+      ]
+      
+      // 顺序执行所有步骤
+      for (const step of steps) {
+        try {
+          // 更新状态
+          this.dataProcessing.status = step.name
+          this.dataProcessing.progress = step.progress
+          this.dataProcessing.message = step.message
+          this.dataProcessing.details = step.details
+          
+          console.log(`执行步骤: ${step.name}`)
+          await step.action()
+          
+          // 短暂延迟，让用户看到进度变化
+          await new Promise(resolve => setTimeout(resolve, 500))
+          
+        } catch (error) {
+          console.error(`步骤 ${step.name} 失败:`, error)
+          throw new Error(`数据处理失败: ${step.name} - ${error.message}`)
+        }
+      }
+      
+      return true
+    },
+
+    /**
+     * 跳转到结果页面
+     */
+    async jumpToResultsPage() {
+      // 处理成功
+      this.dataProcessing.status = 'success'
+      this.dataProcessing.progress = 100
+      this.dataProcessing.message = '数据处理完成!'
+      this.dataProcessing.details = '数据分析完成，准备展示结果'
+      
+      // 清除保存的数据
+      localStorage.removeItem(this.table.backupKey)
+      
+      // 延迟显示成功消息
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // 跳转到结果页面
+      this.currentStep = 7
+      
+      // 初始化结果页面
+      this.$nextTick(() => {
+        this.initializeResultsPage()
+      })
+      
+      this.$message.success('数据处理完成，已跳转到结果页面')
+    },
+
+    /**
+     * 初始化结果页面
+     */
+    initializeResultsPage() {
+      console.log('初始化结果页面')
+      
+      // 这里可以添加加载图表数据等操作
+      // 比如：this.loadCharts()
+      
+      // 设置默认激活的标签页
+      this.activeTab = 'gradeDistribution'
+    },
+
+    /**
+     * 加载默认模板
+     */
+    async loadDefaultTemplate(luckysheet) {
+      return new Promise((resolve) => {
+        try {
+          const defaultSheets = this.generateLuckysheetData()
+          
+          if (typeof luckysheet.destroy === 'function') {
+            try {
+              luckysheet.destroy()
+            } catch (e) {
+              console.log('清理现有实例:', e.message)
+            }
+          }
+          
+          setTimeout(() => {
+            try {
+              luckysheet.create({
+                container: 'luckysheet',
+                lang: 'zh',
+                data: defaultSheets,
+                title: '学生成绩数据表',
+                userInfo: false,
+                showtoolbar: true,
+                showinfobar: false,
+                showsheetbar: true,
+                showstatisticBar: true
+              })
+              
+              console.log('默认模板加载成功')
+              resolve()
+              
+            } catch (error) {
+              console.error('加载模板失败:', error)
+              resolve()
+            }
+          }, 300)
+          
+        } catch (error) {
+          console.error('准备模板失败:', error)
+          resolve()
+        }
+      })
+    },
+
+    /**
+     * 统一的错误处理
+     */
+    async handleProcessingError(error) {
+      console.error('数据处理错误:', error)
+      
+      // 更新状态
+      this.dataProcessing.status = 'error'
+      this.dataProcessing.error = error.message
+      this.dataProcessing.message = `处理失败: ${error.message}`
+      this.dataProcessing.details = '请检查数据格式后重试'
+      
+      // 保存错误日志
+      this.logProcessingError(error)
+      
+      // 显示错误信息
+      this.$message.error(`数据处理失败: ${error.message}`)
+      
+      // 重置进度条
+      this.dataProcessing.progress = 0
+      
+      // 延迟后允许用户重试
+      setTimeout(() => {
+        this.dataProcessing.details = '点击"开始处理数据"按钮重试'
+      }, 3000)
+    },
+
+    /**
+     * 获取学生数量
+     */
+    getStudentCount() {
+      if (!this.dataProcessing.extractedData || 
+          !this.dataProcessing.extractedData.sheets) {
+        return 0
+      }
+      
+      let count = 0
+      const sheets = this.dataProcessing.extractedData.sheets
+      
+      sheets.forEach(sheet => {
+        if (sheet.data && sheet.data.length > 1) {
+          // 从第二行开始（第一行是表头）
+          for (let i = 1; i < sheet.data.length; i++) {
+            const row = sheet.data[i]
+            // 检查是否有学号或姓名
+            if (row && row.length >= 3 && (row[1] || row[2])) {
+              count++
+            }
+          }
+        }
+      })
+      
+      // 更新表格状态
+      this.table.studentCount = count
+      this.table.lastValidCheck = new Date()
+      
+      return count
+    },
+
+    /**
+     * 获取最后检查时间
+     */
+    getLastCheckTime() {
+      if (!this.table.lastValidCheck) {
+        return '未检查'
+      }
+      
+      const now = new Date()
+      const checkTime = new Date(this.table.lastValidCheck)
+      const diffMinutes = Math.floor((now - checkTime) / (1000 * 60))
+      
+      if (diffMinutes < 1) {
+        return '刚刚'
+      } else if (diffMinutes < 60) {
+        return `${diffMinutes}分钟前`
+      } else {
+        return `${Math.floor(diffMinutes / 60)}小时前`
+      }
+    },
+
+    /**
+     * 提取表格数据
+     */
+    async extractTableData() {
+      return new Promise((resolve, reject) => {
+        // 确保表格就绪
+        if (!this.table.isReady) {
+          reject(new Error('表格未就绪，请稍后重试'))
+          return
+        }
+        
+        const iframe = this.$refs.luckysheetFrame
+        if (!iframe || !iframe.contentWindow) {
+          reject(new Error('表格组件未加载'))
+          return
+        }
+        
+        const luckysheet = iframe.contentWindow.luckysheet
+        if (!luckysheet) {
+          reject(new Error('表格实例未初始化'))
+          return
+        }
+        
+        try {
+          const allSheets = luckysheet.getAllSheets() || []
+          
+          if (allSheets.length === 0) {
+            reject(new Error('未找到任何表格数据'))
+            return
+          }
+          
+          const sheets = allSheets.map((sheet, index) => {
+            try {
+              const sheetData = luckysheet.getSheetData(sheet.id)
+              
+              return {
+                name: sheet.name || `Sheet${index + 1}`,
+                data: this.convertSheetData(sheetData || [])
+              }
+            } catch (error) {
+              console.warn(`提取sheet ${sheet.name} 失败:`, error)
+              return null
+            }
+          }).filter(sheet => sheet !== null)
+          
+          if (sheets.length === 0) {
+            reject(new Error('所有表格数据提取失败'))
+            return
+          }
+          
+          this.dataProcessing.extractedData = { sheets }
+          console.log('数据提取成功，共', sheets.length, '个sheet')
+          resolve()
+          
+        } catch (error) {
+          reject(new Error('提取数据失败: ' + error.message))
+        }
+      })
+    },
+
+    /**
+     * 验证提取的数据
+     */
+    async validateExtractedData() {
+      if (!this.dataProcessing.extractedData) {
+        throw new Error('未找到提取的数据')
+      }
+      
+      const { sheets } = this.dataProcessing.extractedData
+      
+      // 基础验证
+      if (!sheets || sheets.length === 0) {
+        throw new Error('没有有效的表格数据')
+      }
+      
+      let hasStudentData = false
+      let totalStudents = 0
+      
+      // 检查每个sheet
+      for (const sheet of sheets) {
+        if (sheet.data && sheet.data.length > 1) {
+          // 检查表头
+          if (sheet.data[0].length < 3) {
+            throw new Error(`${sheet.name}: 表头不完整`)
+          }
+          
+          // 检查数据行
+          for (let i = 1; i < sheet.data.length; i++) {
+            const row = sheet.data[i]
+            
+            // 检查基本信息
+            const hasInfo = row && row.length >= 3 && 
+                          (row[1] || row[2]) // 学号或姓名
+                          
+            // 检查成绩数据
+            const hasScores = row && row.length > 3 && 
+                            row.slice(3).some(score => 
+                              score && !isNaN(Number(score)) && Number(score) > 0
+                            )
+            
+            if (hasInfo && hasScores) {
+              hasStudentData = true
+              totalStudents++
+            }
+          }
+        }
+      }
+      
+      if (!hasStudentData) {
+        throw new Error('没有找到有效的学生成绩数据')
+      }
+      
+      console.log('数据验证通过，共发现', totalStudents, '名学生数据')
+      this.table.isDataValid = true
+      this.table.lastValidCheck = new Date()
+    },
+
+    /**
+     * 提交数据处理
+     */
+    async submitForProcessing() {
+      return new Promise((resolve, reject) => {
+        try {
+          // 1. 验证必要数据
+          if (!this.dataProcessing.extractedData) {
+            reject(new Error('没有可处理的数据'))
+            return
+          }
+
+          if (!this.dataProcessing.configId) {
+            reject(new Error('缺少配置ID'))
+            return
+          }
+
+          console.log('开始提交数据处理...')
+          console.log('配置ID:', this.dataProcessing.configId)
+          console.log('提取的数据结构:', this.dataProcessing.extractedData)
+
+          // 2. 调用后端API处理数据
+          // 直接使用原代码中的processData API调用
+          processData(this.dataProcessing.extractedData, this.dataProcessing.configId)
+            .then(response => {
+              console.log('processData API完整响应:', response)
+              console.log('response.code:', response.code)
+              console.log('response.results:', response.results)
+              console.log('response.reportId:', response.reportId)
+
+              // 检查响应
+              if (!response) {
+                reject(new Error('API响应为空'))
+                return
+              }
+
+              if (typeof response !== 'object') {
+                reject(new Error('API响应格式错误，期望对象'))
+                return
+              }
+
+              if (response.code !== 200) {
+                reject(new Error('API返回错误: ' + (response.msg || '未知错误')))
+                return
+              }
+
+              // 保存处理结果
+              this.dataProcessing.results = response.results || {}
+              this.dataProcessing.reportId = response.reportId || ''
+
+              console.log('数据处理提交成功，结果:', this.dataProcessing.results)
+              console.log('报告ID:', this.dataProcessing.reportId)
+
+              // 确保configId也正确设置（从原代码中可见需要保存configId用于后续图片加载）
+              if (response.configId) {
+                this.dataProcessing.configId = response.configId
+              }
+
+              resolve()
+            })
+            .catch(error => {
+              console.error('processData API调用失败:', error)
+              
+              // 详细的错误处理
+              let errorMessage = '数据处理API调用失败：'
+              if (error.response) {
+                // 服务器返回了错误响应
+                console.error('HTTP错误响应:', error.response)
+                console.error('HTTP状态码:', error.response.status)
+                console.error('HTTP响应数据:', error.response.data)
+                
+                errorMessage += `服务器错误 ${error.response.status}: ${JSON.stringify(error.response.data) || error.response.statusText}`
+              } else if (error.request) {
+                // 网络错误
+                console.error('网络请求错误:', error.request)
+                errorMessage += '网络连接失败，请检查前端服务器是否启动(端口80)和后端服务是否启动(端口8080)'
+              } else if (error.message) {
+                // 其他错误
+                errorMessage += error.message
+              } else {
+                errorMessage += '未知错误，请查看控制台日志'
+              }
+              
+              reject(new Error(errorMessage))
+            })
+            
+        } catch (error) {
+          console.error('提交数据处理时发生异常:', error)
+          reject(new Error('提交数据处理失败: ' + error.message))
+        }
+      })
+    },
+
+    // 添加新的表格状态检测方法
+    async waitForTableFullyReady() {
+      return new Promise((resolve, reject) => {
+        const maxAttempts = 50
+        const interval = 200
+        let attempts = 0
+        
+        const check = async () => {
+          attempts++
+          
+          try {
+            // 1. 检查iframe是否存在
+            const iframe = this.$refs.luckysheetFrame
+            if (!iframe) {
+              console.log(`[${attempts}] iframe不存在`)
+              if (attempts >= maxAttempts) {
+                reject(new Error('iframe加载超时'))
+                return
+              }
+              setTimeout(check, interval)
+              return
+            }
+            
+            // 2. 检查iframe窗口
+            if (!iframe.contentWindow) {
+              console.log(`[${attempts}] iframe窗口未加载`)
+              if (attempts >= maxAttempts) {
+                reject(new Error('iframe内容加载超时'))
+                return
+              }
+              setTimeout(check, interval)
+              return
+            }
+            
+            // 3. 检查Luckysheet对象
+            const luckysheet = iframe.contentWindow.luckysheet
+            if (!luckysheet) {
+              console.log(`[${attempts}] luckysheet对象不存在`)
+              if (attempts >= maxAttempts) {
+                reject(new Error('Luckysheet插件加载超时'))
+                return
+              }
+              setTimeout(check, interval)
+              return
+            }
+            
+            // 4. 检查关键API是否可用
+            if (typeof luckysheet.getAllSheets !== 'function') {
+              console.log(`[${attempts}] 关键API不可用`)
+              if (attempts >= maxAttempts) {
+                reject(new Error('Luckysheet API未就绪'))
+                return
+              }
+              setTimeout(check, interval)
+              return
+            }
+            
+            // 5. 实际测试API调用
+            try {
+              const sheets = luckysheet.getAllSheets()
+              if (!sheets) {
+                throw new Error('getAllSheets返回空')
+              }
+              console.log(`表格完全就绪! sheet数量: ${sheets.length}`)
+              resolve(luckysheet)
+            } catch (apiError) {
+              console.log(`[${attempts}] API测试失败: ${apiError.message}`)
+              if (attempts >= maxAttempts) {
+                reject(new Error('Luckysheet API测试失败'))
+                return
+              }
+              setTimeout(check, interval)
+            }
+            
+          } catch (error) {
+            console.error(`检查表格状态时出错: ${error.message}`)
+            if (attempts >= maxAttempts) {
+              reject(error)
+            } else {
+              setTimeout(check, interval)
+            }
+          }
+        }
+        
+        console.log('开始等待表格完全就绪...')
+        check()
+      })
+    },
+
+    /**
+     * 完成数据处理
+     */
+    async awaitProcessingResult() {
+      return new Promise((resolve) => {
+        
+        const startTime = Date.now()
+        const totalWaitTime = 5000 // 假设处理需要5秒
+        
+        // 模拟进度更新
+        const interval = setInterval(() => {
+          const elapsed = Date.now() - startTime
+          const progress = Math.min(80 + Math.floor((elapsed / totalWaitTime) * 20), 95)
+          
+          this.dataProcessing.progress = progress
+          this.dataProcessing.details = `处理进度: ${progress}%`
+          
+          // 更新处理消息
+          if (progress < 85) {
+            this.dataProcessing.message = '正在分析成绩数据...'
+          } else if (progress < 90) {
+            this.dataProcessing.message = '正在计算课程目标达成度...'
+          } else {
+            this.dataProcessing.message = '正在生成图表和报告...'
+          }
+          
+        }, 500)
+        
+        // 模拟处理时间
+        setTimeout(() => {
+          clearInterval(interval)
+          this.dataProcessing.progress = 100
+          this.dataProcessing.message = '数据处理完成!'
+          this.dataProcessing.details = '数据分析完成，准备展示结果'
+          resolve()
+        }, totalWaitTime)
+      })
+    },
+
+    /**
+     * 统一的错误处理
+     */
+    async handleProcessingError(error) {
+      console.error('数据处理错误:', error)
+      
+      // 更新状态
+      this.dataProcessing.status = 'error'
+      this.dataProcessing.error = error.message
+      this.dataProcessing.message = `处理失败: ${error.message}`
+      
+      // 保存错误日志
+      this.logProcessingError(error)
+      
+      // 显示错误信息
+      this.$message.error(`数据处理失败: ${error.message}`)
+      
+      // 延迟显示错误，让用户看清楚
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // 返回数据录入页面并恢复数据
+      await this.returnToDataEntryWithRecovery()
+    },
+
+    /**
+     * 返回数据录入并恢复数据
+     */
+    async returnToDataEntryWithRecovery() {
+      // 1. 跳回数据录入页面
+      this.currentStep = 6
+      
+      // 2. 等待页面切换完成
+      await this.$nextTick()
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // 3. 尝试恢复数据
+      try {
+        const restored = await this.restoreTableData()
+        
+        if (restored) {
+          this.$message({
+            type: 'warning',
+            message: '已恢复您填写的数据，请检查后重试',
+            duration: 5000
+          })
+        } else {
+          // 恢复失败，重新初始化表格
+          this.initializeStep7()
+          this.$message.warning('数据处理失败，已重新加载表格模板')
+        }
+      } catch (restoreError) {
+        console.error('恢复数据失败:', restoreError)
+        this.$message.error('恢复数据失败，请重新填写')
+      }
+      
+      // 4. 重置处理状态
+      this.resetProcessingState()
+    },
+
+    /**
+     * 重置处理状态
+     */
+    resetProcessingState() {
+      this.dataProcessing.status = 'idle'
+      this.dataProcessing.progress = 0
+      this.dataProcessing.error = null
+      this.dataProcessing.extractedData = null
+    },
+
+    /**
+     * 保存表格数据
+     */
+    async saveTableData() {
+      return new Promise((resolve) => {
+        const iframe = this.$refs.luckysheetFrame
+        
+        if (!iframe || !iframe.contentWindow) {
+          console.warn('保存失败: iframe未就绪')
+          resolve(false)
+          return
+        }
+        
+        const luckysheet = iframe.contentWindow.luckysheet
+        if (!luckysheet) {
+          console.warn('保存失败: luckysheet实例未就绪')
+          resolve(false)
+          return
+        }
+        
+        try {
+          const allSheets = luckysheet.getAllSheets() || []
+          
+          if (allSheets.length === 0) {
+            console.log('没有数据需要保存')
+            resolve(false)
+            return
+          }
+          
+          const sheetsToSave = []
+          
+          allSheets.forEach((sheet, index) => {
+            try {
+              const sheetData = luckysheet.getSheetData(sheet.id)
+              
+              // 转换为保存格式
+              const celldata = []
+              if (sheetData && Array.isArray(sheetData)) {
+                for (let r = 0; r < sheetData.length; r++) {
+                  const row = sheetData[r]
+                  if (row && Array.isArray(row)) {
+                    for (let c = 0; c < row.length; c++) {
+                      const cell = row[c]
+                      if (cell != null) {
+                        const value = this.extractCellValue(cell)
+                        if (value !== '' && value != null) {
+                          celldata.push({ r, c, v: value })
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              
+              // 检查是否有实际数据
+              const hasActualData = celldata.some(cell => 
+                cell.r > 0 && cell.c >= 1 && cell.v.toString().trim() !== ''
+              )
+              
+              if (hasActualData) {
+                sheetsToSave.push({
+                  name: sheet.name || `Sheet${index + 1}`,
+                  index: sheet.index || index,
+                  celldata,
+                  config: {
+                    columnlen: sheet.config?.columnlen || {},
+                    rowlen: sheet.config?.rowlen || 40
+                  }
+                })
+              }
+            } catch (error) {
+              console.error(`保存sheet ${sheet.name} 失败:`, error)
+            }
+          })
+          
+          if (sheetsToSave.length > 0) {
+            const savedData = {
+              timestamp: Date.now(),
+              sheets: sheetsToSave
+            }
+            
+            localStorage.setItem(this.table.backupKey, JSON.stringify(savedData))
+            this.dataProcessing.hasSavedData = true
+            this.dataProcessing.lastSaveTime = savedData.timestamp
+            
+            console.log('数据保存成功，共', sheetsToSave.length, '个sheet')
+            resolve(true)
+          } else {
+            console.log('没有需要保存的数据')
+            localStorage.removeItem(this.table.backupKey)
+            resolve(false)
+          }
+          
+        } catch (error) {
+          console.error('保存数据失败:', error)
+          resolve(false)
+        }
+      })
+    },
+
+    /**
+     * 恢复表格数据
+     */
+    async restoreTableData() {
+      console.log('开始恢复表格数据...')
+      
+      return new Promise((resolve) => {
+        // 检查是否有保存的数据
+        const savedData = localStorage.getItem(this.table.backupKey)
+        if (!savedData) {
+          console.log('没有找到保存的数据')
+          resolve(false)
+          return
+        }
+        
+        // 解析数据
+        let parsedData
+        try {
+          parsedData = JSON.parse(savedData)
+        } catch (error) {
+          console.error('解析保存数据失败:', error)
+          localStorage.removeItem(this.table.backupKey)
+          resolve(false)
+          return
+        }
+        
+        // 检查数据时效性（24小时内）
+        const now = Date.now()
+        const oneDay = 24 * 60 * 60 * 1000
+        if (now - parsedData.timestamp > oneDay) {
+          console.log('保存的数据已过期')
+          localStorage.removeItem(this.table.backupKey)
+          resolve(false)
+          return
+        }
+        
+        // 等待表格就绪
+        this.waitForTableReady().then((luckysheet) => {
+          if (!luckysheet) {
+            resolve(false)
+            return
+          }
+          
+          this.loadDataToTable(luckysheet, parsedData.sheets)
+            .then(resolve)
+            .catch(() => resolve(false))
+            
+        }).catch(() => resolve(false))
+      })
+    },
+
+    /**
+     * 等待表格就绪
+     */
+    waitForTableReady(maxRetries = 30, delay = 200) {
+      return new Promise((resolve, reject) => {
+        let attempts = 0
+        
+        const check = () => {
+          attempts++
+          
+          try {
+            console.log(`尝试获取表格实例 (${attempts}/${maxRetries})...`)
+            
+            const iframe = this.$refs.luckysheetFrame
+            if (!iframe) {
+              console.log('iframe 引用不存在')
+              if (attempts >= maxRetries) {
+                reject(new Error('iframe 引用未找到'))
+              } else {
+                setTimeout(check, delay)
+              }
+              return
+            }
+            
+            const iframeWindow = iframe.contentWindow
+            if (!iframeWindow) {
+              console.log('iframe 窗口未加载')
+              if (attempts >= maxRetries) {
+                reject(new Error('iframe 窗口未加载完成'))
+              } else {
+                setTimeout(check, delay)
+              }
+              return
+            }
+            
+            const luckysheet = iframeWindow.luckysheet
+            if (!luckysheet) {
+              console.log('Luckysheet 对象不存在')
+              if (attempts >= maxRetries) {
+                reject(new Error('Luckysheet 插件未初始化'))
+              } else {
+                setTimeout(check, delay)
+              }
+              return
+            }
+            
+            // 检查是否已经创建
+            if (typeof luckysheet.create !== 'function') {
+              console.log('Luckysheet.create 方法不存在')
+              if (attempts >= maxRetries) {
+                reject(new Error('Luckysheet 创建方法未就绪'))
+              } else {
+                setTimeout(check, delay)
+              }
+              return
+            }
+            
+            console.log('表格实例获取成功')
+            resolve(luckysheet)
+            
+          } catch (error) {
+            console.error(`检查表格时出错 (${attempts}/${maxRetries}):`, error.message)
+            if (attempts >= maxRetries) {
+              reject(new Error(`表格检查失败: ${error.message}`))
+            } else {
+              setTimeout(check, delay)
+            }
+          }
+        }
+        
+        check()
+      })
+    },
+
+    /**
+     * 加载数据到表格
+     */
+    async loadDataToTable(luckysheet, sheets) {
+      return new Promise((resolve) => {
+        try {
+          // 准备数据
+          const formattedSheets = sheets.map((sheet, index) => {
+            // 清理celldata
+            const cleanCelldata = []
+            if (sheet.celldata && Array.isArray(sheet.celldata)) {
+              sheet.celldata.forEach(cell => {
+                if (cell && typeof cell === 'object') {
+                  const r = Number(cell.r)
+                  const c = Number(cell.c)
+                  
+                  if (!isNaN(r) && !isNaN(c) && cell.v !== undefined) {
+                    cleanCelldata.push({
+                      r: r,
+                      c: c,
+                      v: cell.v
+                    })
+                  }
+                }
+              })
+            }
+            
+            // 排序
+            cleanCelldata.sort((a, b) => {
+              if (a.r !== b.r) return a.r - b.r
+              return a.c - b.c
+            })
+            
+            return {
+              name: sheet.name || `Sheet${index + 1}`,
+              index: sheet.index || index,
+              status: 1,
+              order: sheet.order || index,
+              celldata: cleanCelldata,
+              config: {
+                columnlen: sheet.config?.columnlen || {},
+                rowlen: sheet.config?.rowlen || 40
+              }
+            }
+          })
+          
+          // 销毁现有实例
+          if (typeof luckysheet.destroy === 'function') {
+            try {
+              luckysheet.destroy()
+            } catch (e) {
+              console.log('清理表格实例:', e.message)
+            }
+          }
+          
+          // 重新创建表格
+          setTimeout(() => {
+            try {
+              luckysheet.create({
+                container: 'luckysheet',
+                lang: 'zh',
+                data: formattedSheets,
+                title: '学生成绩数据表',
+                userInfo: false,
+                showtoolbar: true,
+                showinfobar: false,
+                showsheetbar: true,
+                showstatisticBar: true
+              })
+              
+              console.log('数据恢复成功')
+              resolve(true)
+              
+            } catch (error) {
+              console.error('加载数据失败:', error)
+              resolve(false)
+            }
+          }, 300)
+          
+        } catch (error) {
+          console.error('准备数据失败:', error)
+          resolve(false)
+        }
+      })
+    },
+
+    /**
+     * 转换单元格值
+     */
+    extractCellValue(cell) {
+      if (cell == null) return ''
+      
+      if (typeof cell === 'object') {
+        if (cell.v !== undefined) return cell.v
+        if (cell.m !== undefined) return cell.m
+        return ''
+      }
+      
+      return cell
+    },
+
+    /**
+     * 转换表格数据格式
+     */
+    convertSheetData(sheetData) {
+      if (!sheetData || !Array.isArray(sheetData)) {
+        return [['', '', '', '']]
+      }
+      
+      return sheetData.map(row => {
+        if (!row || !Array.isArray(row)) {
+          return ['', '', '', '']
+        }
+        
+        return row.map(cell => {
+          if (cell && typeof cell === 'object') {
+            return cell.v !== undefined ? cell.v : ''
+          }
+          return cell || ''
+        })
+      })
+    },
+
+    /**
+     * 记录处理错误
+     */
+    logProcessingError(error) {
+      const errorLog = {
+        timestamp: new Date().toISOString(),
+        configId: this.dataProcessing.configId,
+        step: this.dataProcessing.status,
+        message: error.message,
+        stack: error.stack
+      }
+      
+      // 可以保存到localStorage或发送到服务器
+      console.error('处理错误日志:', errorLog)
+    },
+
+    /**
+     * 步骤7的初始化（简化版）
+     */
+    initializeStep7() {
+      console.log('初始化步骤7')
+      
+      // 重置表格状态
+      this.table.isReady = false
+      this.table.isDataValid = false
+      
+      // 重置iframe URL以触发重新加载
+      this.luckysheetUrl = `${process.env.VUE_APP_BASE_API}/luckysheet.html?t=${Date.now()}`
+      
+      // 标记为正在加载
+      this.step7.isLoading = true
+    },
+
+    /**
+     * iframe加载完成回调
+     */
+    async onLuckysheetLoad() {
+      console.log('表格加载完成')
+      
+      try {
+        // 等待表格就绪
+        const luckysheet = await this.waitForTableReady()
+        this.table.isReady = true
+        
+        // 检查是否需要恢复数据
+        const savedData = localStorage.getItem(this.table.backupKey)
+        if (savedData) {
+          const restored = await this.restoreTableData()
+          if (restored) {
+            console.log('数据恢复成功')
+            this.$message.success('已恢复上次填写的表格数据')
+          } else {
+            // 恢复失败，加载默认模板
+            await this.loadDefaultTemplate(luckysheet)
+          }
+        } else {
+          // 加载默认模板
+          await this.loadDefaultTemplate(luckysheet)
+        }
+        
+        this.step7.isLoading = false
+        console.log('表格初始化完成')
+        
+        // 显示操作提示
+        this.showDataEntryGuide()
+        
+      } catch (error) {
+        console.error('表格初始化失败:', error)
+        this.step7.isLoading = false
+        this.$message.error('表格加载失败，请刷新页面重试')
+      }
+    },
+
+    /**
+     * 显示数据填写指南
+     */
+    showDataEntryGuide() {
+      // 延迟显示，确保表格完全渲染
+      setTimeout(() => {
+        this.$notify({
+          title: '数据填写说明',
+          message: '请直接在表格中填写学生成绩数据：<br>' +
+                  '1. 每个sheet代表一种考核方式<br>' +
+                  '2. 第一行为表头，从第二行开始填写<br>' +
+                  '3. 填写完成后点击"开始处理数据"按钮<br>' +
+                  '4. 系统会自动检查数据完整性',
+          type: 'info',
+          duration: 8000,
+          dangerouslyUseHTMLString: true
+        })
+      }, 1000)
+    },
+
+    // 添加生成配置ID的方法
+    generateConfigId() {
+      const timestamp = Date.now()
+      const randomStr = Math.random().toString(36).substring(2, 10)
+      return `config_${timestamp}_${randomStr}`
+    },
+
+    /**
+     * 加载配置（基于原loadDefaultConfig方法重构）
+     */
+    async loadDefaultConfiguration() {
+      try {
+        this.loading = true
+        console.log('开始调用loadDefaultConfig API...')
+        
+        const response = await loadDefaultConfig()
+        console.log('API完整响应:', response)
+        
+        if (!response) {
+          throw new Error('API响应为空')
+        }
+        
+        if (typeof response !== 'object') {
+          throw new Error('API响应格式错误')
+        }
+        
+        if (response.code !== 200) {
+          throw new Error('API调用失败: ' + (response.msg || '未知错误'))
+        }
+        
+        if (response && response.code === 200 && response.configId && response.config) {
+          console.log('API调用成功，configId:', response.configId)
+          this.dataProcessing.configId = response.configId
+          
+          // 保存配置用于后续处理
+          this.examConfig = response.config
+          
+          return response
+        } else {
+          throw new Error('API响应数据不完整')
+        }
+        
+      } catch (error) {
+        console.error('加载配置失败:', error)
+        throw error
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // ========== 步骤8: 结果展示和报告下载 ==========
     
     handleImageError(event, filename) {
       console.error(`图片加载失败: ${filename}`, event)
@@ -2428,98 +4256,14 @@ export default {
       }
     },
 
-    // 数据处理方法
-    async processData() {
-      this.processing = true
-      this.currentStep = 7  // 跳转到数据处理步骤
-      this.processProgress = 0
-      this.processStatus = null
-      this.processMessage = '正在提取Excel数据...'
-
-      let progressTimer = null
-
-      try {
-        // 获取Luckysheet数据
-        const excelData = await this.extractSheetData()
-        this.processProgress = 25
-        this.processMessage = '正在处理数据，请耐心等待...'
-
-        // 启动进度模拟器
-        progressTimer = setInterval(() => {
-          if (this.processProgress < 90) {
-            this.processProgress += 1
-            if (this.processProgress < 50) {
-              this.processMessage = '正在分析成绩数据...'
-            } else if (this.processProgress < 70) {
-              this.processMessage = '正在计算课程目标达成度...'
-            } else if (this.processProgress < 90) {
-              this.processMessage = '正在生成图表和报告...'
-            }
-          }
-        }, 2000)
-
-        // 生成配置ID
-        this.configId = this.generateConfigId()
-        
-        // 提交数据处理
-        const response = await processData({
-          excelData: excelData,
-          config: this.examConfig,
-          configId: this.configId
-        })
-        
-        if (progressTimer) {
-          clearInterval(progressTimer)
-        }
-        this.processProgress = 100
-        this.processMessage = '数据处理完成！'
-
-        console.log('processData API完整响应:', response)
-        console.log('response.code:', response.code)
-        console.log('response.results:', response.results)
-        console.log('response.reportId:', response.reportId)
-
-        if (response && response.code === 200) {
-          this.results = response.results || {}
-          this.reportId = response.reportId || ''
-          this.processProgress = 100
-          this.processStatus = 'success'
-          this.processMessage = '数据处理完成！'
-
-          setTimeout(() => {
-            this.currentStep = 8  // 跳转到结果展示步骤
-          }, 1000)
-        } else {
-          throw new Error('数据处理API返回错误: ' + (response.msg || '未知错误'))
-        }
-      } catch (error) {
-        if (progressTimer) {
-          clearInterval(progressTimer)
-        }
-        this.processProgress = 100
-        this.processStatus = 'exception'
-        this.processMessage = '处理失败：' + error.message
-        this.$message.error('数据处理失败：' + error.message)
-      } finally {
-        this.processing = false
-      }
-    },
-
-    // 生成配置ID
-    generateConfigId() {
-      const timestamp = new Date().getTime()
-      const random = Math.random().toString(36).substring(2, 8)
-      return `config_${timestamp}_${random}.json`
-    },
-
     // 图片URL生成方法
     getImageUrl(fileName) {
-      if (!fileName || !this.configId) {
+      if (!fileName || !this.dataProcessing.configId) {
         return null
       }
       
       // 确保configId不包含.json后缀用于URL路径
-      let cleanConfigId = this.configId;
+      let cleanConfigId = this.dataProcessing.configId;
       if (cleanConfigId.endsWith('.json')) {
         cleanConfigId = cleanConfigId.substring(0, cleanConfigId.length - 5);
       }
@@ -2530,8 +4274,6 @@ export default {
       // 使用正确的API前缀，这样会通过代理转发到8080端口
       const imageUrl = `/dev-api/luckysheet/result/${cleanConfigId}/${encodedFileName}`;
       console.log('生成图片URL:', imageUrl);
-      console.log('原始文件名:', fileName);
-      console.log('编码后文件名:', encodedFileName);
       return imageUrl;
     },
 
@@ -2590,8 +4332,13 @@ export default {
     // 下载报告方法
     async downloadReport() {
       try {
+        if (!this.dataProcessing.reportId || !this.dataProcessing.configId) {
+          this.$message.error('报告尚未生成，请先处理数据')
+          return
+        }
+        
         // 使用正确的API前缀路径
-        const downloadUrl = `/dev-api/luckysheet/download-report/${this.reportId}?configId=${this.configId}`
+        const downloadUrl = `/dev-api/luckysheet/download-report/${this.dataProcessing.reportId}?configId=${this.dataProcessing.configId}`
         console.log('下载URL:', downloadUrl)
         
         window.open(downloadUrl)
@@ -2601,17 +4348,18 @@ export default {
         this.$message.error('下载失败：' + error.message)
       }
     },
-
-
-    
+ 
     // ========== 工具方法 ==========
     restart() {
-      // 重置所有数据到初始状态
+      // 步骤控制重置
       this.currentStep = 0
+      this.loading = false
+
+      // 考核方式选择重置
       this.selectedAssessmentTypes = ['regular', 'lab', 'final']
       this.isStep1Valid = true
       
-      // 重置为null而不是默认值
+      // 考核配置重置
       this.proportions = {
         regular: 0,
         lab: 0,
@@ -2620,60 +4368,136 @@ export default {
       this.scores = {
         regular: 0,
         lab: 0,
-        final: 0
+        final: 0 
       }
       this.totalMessage = '请设置各考核方式的占比和总分'
       
+      // 课程目标重置
       this.targetCount = 2
       this.supportRelationTable = []
+      
+      // 占比分配重置
       this.targetProportionsTable = []
       this.proportionError = ''
       
+      // 期末试卷重置
       this.rows = []
       this.columns = 1
       this.totalScore = 0
       this.paperValidationMessage = '请设置试卷'
       this.paperValidationType = 'info'
       this.isStep6Valid = false
+
+      // LuckySheet 相关重置
+      this.luckysheetUrl = process.env.VUE_APP_BASE_API + "/luckysheet.html"
+      this.luckysheetData = null
       
-      this.configId = ''
-      this.reportId = ''
-      this.results = {}
-      this.activeTab = 'gradeDistribution'
-      this.finalConfig = null
-      
+      // 配置文件重置
       this.examConfig = null
+
+      // 步骤6专用状态重置
+      this.step6 = {
+        loading: false,
+        lastValidation: null
+      }
+      
+      // 步骤7专用状态重置
+      this.step7 = {
+        isInitialized: true,
+        isLoading: true,
+        hasData: false,
+        luckysheetReady: false,
+        lastError: null
+      }
+
+      // ========== 统一的数据处理状态重置 ==========
+      this.dataProcessing = {
+        // 处理状态
+        status: 'idle', // 'idle' | 'saving' | 'extracting' | 'validating' | 'submitting' | 'processing' | 'success' | 'error'
+        progress: 0,
+        message: '',
+        details: '',
+        currentSheet: '',
+        
+        // 数据状态
+        hasSavedData: false,
+        lastSaveTime: null,
+        configId: '',
+        reportId: '',
+        
+        // 提取的数据
+        extractedData: null,
+        
+        // 处理结果
+        results: null,
+        error: null
+      }
+      
+      // ========== 表格相关状态重置 ==========
+      this.table = {
+        isReady: false,
+        isDataValid: false,
+        lastValidCheck: null,
+        backupKey: 'luckysheet_backup_data',
+        studentCount: 0,
+      }
+
+      // UI状态重置
+      this.activeTab = 'gradeDistribution'
+      
+      // 其他配置重置
+      this.finalConfig = null
       this.csvHeaders = {
         final: [],
         regular: [],
         lab: []
       }
-      
-      // 重置步骤7
-      this.step7 = {
-        isInitialized: false,
-        isLoading: false,
-        hasData: false,
-        luckysheetReady: false,
-        luckysheetInstance: null,
-        sheetData: null,
-        validationResult: {
-          isValid: false,
-          message: '等待数据验证...',
-          dataCount: 0,
-          issues: []
-        },
-        processing: false,
-        progress: 0,
-        processMessage: '准备处理数据...'
+
+      // 清理本地存储
+      try {
+        localStorage.removeItem(this.table.backupKey)
+        console.log('已清理本地存储数据')
+      } catch (error) {
+        console.warn('清理本地存储失败:', error)
       }
+
+      // 清理Luckysheet iframe内容
+      if (this.$refs.luckysheetFrame) {
+        const iframe = this.$refs.luckysheetFrame
+        if (iframe.contentWindow && iframe.contentWindow.luckysheet) {
+          try {
+            const luckysheet = iframe.contentWindow.luckysheet
+            if (typeof luckysheet.destroy === 'function') {
+              luckysheet.destroy()
+            }
+          } catch (error) {
+            console.warn('清理Luckysheet实例失败:', error)
+          }
+        }
+      }
+
+      // 重新初始化第一步
+      this.$nextTick(() => {
+        this.validateStep1()
+        
+        // 如果有需要，重新加载表格
+        if (this.currentStep === 6) {
+          setTimeout(() => {
+            this.initializeStep7()
+          }, 100)
+        }
+        
+        // 触发视图更新
+        this.$forceUpdate()
+      })
       
-      this.step7NeedsInitialization = false
-      
-      // 重新初始化
-      this.validateStep1()
-      
+      // 显示成功消息
       this.$message.success('已重置所有配置，可以重新开始')
+      
+      // 添加调试信息
+      console.log('系统已重置，当前步骤:', this.currentStep)
+      console.log('数据处理状态:', this.dataProcessing.status)
+      console.log('表格状态:', this.table)
     }
   }
 }

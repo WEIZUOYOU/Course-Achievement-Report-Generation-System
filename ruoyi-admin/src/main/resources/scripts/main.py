@@ -7,6 +7,8 @@ import os
 import sys
 import numpy as np
 import re
+import base64
+import io
 
 # 改进的字体配置函数
 def configure_matplotlib():

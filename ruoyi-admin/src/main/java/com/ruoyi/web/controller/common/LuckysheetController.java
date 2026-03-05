@@ -2,6 +2,7 @@ package com.ruoyi.web.controller.common;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.config.RuoYiConfig;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.file.FileUtils;
@@ -180,79 +181,42 @@ public class LuckysheetController {
         }
         
         try {
-            log.info("开始处理Excel数据，configId: {}", configId);
-            log.info("请求编码: {}", request.getCharacterEncoding());
+            log.info("开始处理Excel数据（流式模式），configId: {}", configId);
             
-            // 调试：打印接收到的原始数据
-            String jsonStr = JSON.toJSONString(excelData);
-            log.info("接收到的JSON数据长度: {}", jsonStr.length());
+            // 1. 将数据转换为处理数据包
+            Map<String, Object> processPackage = new HashMap<>();
+            processPackage.put("config", readConfigFile(configId));
+            processPackage.put("sheetsData", excelData.get("sheets"));
+            processPackage.put("configId", configId);
             
-            // 检查数据中是否包含中文字符
-            boolean containsChinese = jsonStr.matches(".*[\\u4e00-\\u9fa5].*");
-            log.info("数据中是否包含中文: {}", containsChinese);
+            String processDataJson = JSON.toJSONString(processPackage);
             
-            log.info("接收到的Excel数据结构: {}", excelData.keySet());
+            // 2. 通过流的方式执行Python脚本
+            String pythonResult = executePythonScriptWithStream(
+                pythonExecutable,
+                "scripts/main.py",
+                uploadPath + "/data/" + configId + "/",
+                processDataJson,
+                600,
+                null
+            );
             
-            // 打印详细的数据结构用于调试
-            if (excelData.containsKey("sheets")) {
-                List<?> sheets = (List<?>) excelData.get("sheets");
-                log.info("Sheet数量: {}", sheets.size());
-                for (int i = 0; i < sheets.size(); i++) {
-                    Object sheet = sheets.get(i);
-                    log.info("Sheet[{}]类型: {}", i, sheet.getClass().getName());
-                    if (sheet instanceof Map) {
-                        Map<?, ?> sheetMap = (Map<?, ?>) sheet;
-                        log.info("Sheet[{}]键: {}", i, sheetMap.keySet());
-                        if (sheetMap.containsKey("data")) {
-                            Object data = sheetMap.get("data");
-                            log.info("Sheet[{}]数据类型: {}", i, data.getClass().getName());
-                            if (data instanceof List) {
-                                List<?> dataList = (List<?>) data;
-                                log.info("Sheet[{}]数据行数: {}", i, dataList.size());
-                                if (!dataList.isEmpty()) {
-                                    Object firstRow = dataList.get(0);
-                                    log.info("第一行数据类型: {}", firstRow.getClass().getName());
-                                    if (firstRow instanceof List) {
-                                        List<?> firstRowList = (List<?>) firstRow;
-                                        log.info("第一行列数: {}", firstRowList.size());
-                                        if (!firstRowList.isEmpty()) {
-                                            Object firstCell = firstRowList.get(0);
-                                            log.info("第一个单元格类型: {}, 值: {}", 
-                                                firstCell != null ? firstCell.getClass().getName() : "null", 
-                                                firstCell);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            log.info("Python脚本执行完成");
+            
+            // 3. 解析Python脚本的返回结果
+            Map<String, Object> result = parsePythonResult(pythonResult);
+            
+            // 4. 处理返回的文件数据
+            if (result.containsKey("files")) {
+                saveResultFiles(configId, result);
             }
             
-            // 保存Excel数据到临时CSV文件
-            List<String> csvFiles = saveExcelDataToCSV(excelData, configId);
-            log.info("成功保存CSV文件: {}", csvFiles);
-            
-            // 调用Python脚本处理数据
-            boolean success = executePythonScript(configId, csvFiles);
-            log.info("Python脚本执行结果: {}", success);
-            
-            // 如果Python脚本执行失败，生成模拟结果
-            if (!success) {
-                log.warn("Python脚本执行失败，生成模拟结果数据");
-                generateMockResults(configId);
-                success = true; // 设置为成功，以便前端能显示模拟结果
-            }
-            
-            // 收集生成的结果文件
+            // 5. 收集结果文件
             Map<String, Object> results = collectResults(configId);
-            log.info("收集到的结果文件: {}", results.keySet());
-            
-            // 生成报告ID
             String reportId = UUID.randomUUID().toString();
             
             return AjaxResult.success()
-                    .put("success", success)
+                    .put("success", true)
                     .put("results", results)
                     .put("reportId", reportId);
                     
@@ -484,147 +448,172 @@ public class LuckysheetController {
     }
     
     /**
-     * 将Excel数据保存为CSV文件
+     * 创建处理数据包（包含配置和所有数据）
      */
-    private List<String> saveExcelDataToCSV(Map<String, Object> excelData, String configId) throws IOException {
-        List<String> csvFiles = new ArrayList<>();
-        String basePath = uploadPath + "/data/" + configId + "/";
+    private Map<String, Object> createProcessPackage(Map<String, Object> excelData, String configId) throws IOException {
+        Map<String, Object> packageData = new HashMap<>();
         
-        // 确保目录存在
-        new File(basePath).mkdirs();
+        // 1. 读取配置文件
+        JSONObject config = readConfigFile(configId);
+        packageData.put("config", config);
         
-        // 处理每个Sheet的数据
+        // 2. 处理表格数据
+        List<Map<String, Object>> sheetsData = processSheetsData(excelData);
+        packageData.put("sheetsData", sheetsData);
+        
+        // 3. 添加元数据
+        packageData.put("timestamp", System.currentTimeMillis());
+        packageData.put("configId", configId);
+        
+        return packageData;
+    }
+
+    /**
+     * 处理表格数据，转换为更紧凑的格式
+     */
+    private List<Map<String, Object>> processSheetsData(Map<String, Object> excelData) {
+        List<Map<String, Object>> processedSheets = new ArrayList<>();
+        
         List<Map<String, Object>> sheets = (List<Map<String, Object>>) excelData.get("sheets");
         for (Map<String, Object> sheet : sheets) {
+            Map<String, Object> processedSheet = new HashMap<>();
+            
             String sheetName = (String) sheet.get("name");
             List<List<Object>> data = (List<List<Object>>) sheet.get("data");
             
-            // 确定文件名
-            String fileName;
-            if (sheetName.contains("期末考试")) {
-                fileName = "final_exam_scores_template.csv";
-            } else if (sheetName.contains("平时成绩")) {
-                fileName = "regular_scores_template.csv";
-            } else if (sheetName.contains("上机成绩")) {
-                fileName = "lab_scores_template.csv";
-            } else {
-                fileName = sheetName + ".csv";
+            processedSheet.put("name", sheetName);
+            processedSheet.put("data", data);
+            
+            processedSheets.add(processedSheet);
+        }
+        
+        return processedSheets;
+    }
+
+    /**
+     * 解析Python脚本的返回结果
+     */
+    private Map<String, Object> parsePythonResult(String pythonResult) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.readValue(pythonResult, Map.class);
+        } catch (Exception e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", false);
+            result.put("message", "Python脚本返回格式异常: " + e.getMessage());
+            return result;
+        }
+    }
+
+    /**
+     * 保存Python脚本返回的文件数据
+     */
+    private void saveResultFiles(String configId, Map<String, Object> result) throws IOException {
+        String dataDir = uploadPath + "/data/" + configId + "/";
+        File dir = new File(dataDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        
+        Map<String, Object> files = (Map<String, Object>) result.get("files");
+        if (files != null) {
+            for (Map.Entry<String, Object> entry : files.entrySet()) {
+                String fileName = entry.getKey();
+                Object fileData = entry.getValue();
+                
+                if (fileData instanceof String) {
+                    String base64Data = (String) fileData;
+                    if (base64Data.startsWith("data:image/png;base64,")) {
+                        String[] parts = base64Data.split(",", 2);
+                        if (parts.length == 2) {
+                            byte[] decodedBytes = Base64.getDecoder().decode(parts[1]);
+                            Files.write(Paths.get(dataDir + fileName), decodedBytes);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 通过标准输入流传递数据执行Python脚本
+     */
+    public static String executePythonScriptWithStream(String pythonPath, String scriptPath, 
+                                        String workingDir, String inputData, 
+                                        int timeoutSeconds, Map<String, String> env) {
+        StringBuilder output = new StringBuilder();
+        Process process = null;
+        
+        try {
+            ProcessBuilder pb = new ProcessBuilder(pythonPath, scriptPath);
+            
+            // 设置工作目录
+            if (workingDir != null && !workingDir.isEmpty()) {
+                pb.directory(new File(workingDir));
             }
             
-            // 处理列名映射
-            List<List<Object>> processedData = processColumnMapping(data, sheetName);
+            // 设置环境变量
+            if (env != null) {
+                pb.environment().putAll(env);
+            }
             
-            // 写入CSV
-            try (PrintWriter writer = new PrintWriter(new OutputStreamWriter(
-                    new FileOutputStream(basePath + fileName), StandardCharsets.UTF_8))) {
-                
-                // 写入BOM以确保Excel正确识别UTF-8编码
-                writer.write('\ufeff');
-                
-                // 写入数据，安全地转换为字符串
-                for (List<Object> row : processedData) {
-                    List<String> stringRow = new ArrayList<>();
-                    for (Object cell : row) {
-                        // 安全地将各种类型转换为字符串
-                        String cellValue = "";
-                        if (cell != null) {
-                            if (cell instanceof String) {
-                                cellValue = (String) cell;
-                            } else if (cell instanceof Number) {
-                                cellValue = cell.toString();
-                            } else if (cell instanceof Boolean) {
-                                cellValue = cell.toString();
-                            } else {
-                                cellValue = String.valueOf(cell);
-                            }
-                        }
-                        stringRow.add(cellValue);
-                    }
-                    writer.println(String.join(",", stringRow));
+            // 启动进程
+            process = pb.start();
+            
+            // 通过标准输入流传递数据
+            try (BufferedWriter writer = new BufferedWriter(
+                    new OutputStreamWriter(process.getOutputStream()))) {
+                writer.write(inputData);
+                writer.flush();
+            }
+            
+            // 读取输出
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
                 }
             }
             
-            csvFiles.add(fileName);
-        }
-        
-        // 复制配置文件到数据目录
-        String configFilePath = uploadPath + "/config/" + configId;
-        // 如果configId不包含.json后缀，则添加
-        if (!configId.endsWith(".json")) {
-            configFilePath += ".json";
-        }
-
-        log.info("尝试复制配置文件: {} -> {}", configFilePath, basePath + "exam_config.json");
-
-        File configFile = new File(configFilePath);
-        if (!configFile.exists()) {
-            log.error("配置文件不存在: {}", configFilePath);
-            throw new IOException("配置文件不存在: " + configFilePath);
-        }
-
-        Files.copy(Paths.get(configFilePath), 
-                  Paths.get(basePath + "exam_config.json"));
-        
-        return csvFiles;
-    }
-    
-    /**
-     * 处理列名映射，确保生成的CSV文件包含Python脚本期望的列名
-     */
-    private List<List<Object>> processColumnMapping(List<List<Object>> data, String sheetName) {
-        if (data == null || data.isEmpty()) {
-            return data;
-        }
-        
-        List<List<Object>> processedData = new ArrayList<>();
-        
-        // 处理表头（第一行）
-        List<Object> headers = new ArrayList<>(data.get(0));
-        
-        // 根据sheet类型进行列名映射
-        if (sheetName.contains("平时成绩")) {
-            // 平时成绩表：查找可能的总分列名
-            mapColumnName(headers, "平时总分", "平时成绩总分");
-            mapColumnName(headers, "总分", "平时成绩总分");
-            mapColumnName(headers, "平时成绩", "平时成绩总分");
-            mapColumnName(headers, "regular_total", "平时成绩总分");
-            mapColumnName(headers, "regular_score", "平时成绩总分");
-        } else if (sheetName.contains("上机成绩")) {
-            // 上机成绩表：查找可能的总分列名
-            mapColumnName(headers, "上机总分", "上机成绩总分");
-            mapColumnName(headers, "实验总分", "上机成绩总分");
-            mapColumnName(headers, "总分", "上机成绩总分");
-            mapColumnName(headers, "上机成绩", "上机成绩总分");
-            mapColumnName(headers, "lab_total", "上机成绩总分");
-            mapColumnName(headers, "lab_score", "上机成绩总分");
-        }
-        // 期末考试表通常列名比较固定，不需要特殊映射
-        
-        processedData.add(headers);
-        
-        // 添加其余行
-        for (int i = 1; i < data.size(); i++) {
-            processedData.add(new ArrayList<>(data.get(i)));
-        }
-        
-        log.info("Sheet '{}' 列名映射后的表头: {}", sheetName, headers);
-        
-        return processedData;
-    }
-    
-    /**
-     * 映射列名
-     */
-    private void mapColumnName(List<Object> headers, String oldName, String newName) {
-        for (int i = 0; i < headers.size(); i++) {
-            Object header = headers.get(i);
-            if (header != null && header.toString().trim().equals(oldName)) {
-                headers.set(i, newName);
-                log.info("列名映射: '{}' -> '{}'", oldName, newName);
+            // 使用简单的等待方式，避免TimeUnit导入问题
+            long startTime = System.currentTimeMillis();
+            long timeoutMs = timeoutSeconds * 1000L;
+            
+            while (true) {
+                try {
+                    int exitCode = process.exitValue(); // 如果进程已结束，不会抛出异常
+                    if (exitCode != 0) {
+                        throw new RuntimeException("Python脚本执行失败，退出码: " + exitCode);
+                    }
+                    break; // 进程正常结束
+                } catch (IllegalThreadStateException e) {
+                    // 进程还在运行，检查是否超时
+                    if (System.currentTimeMillis() - startTime > timeoutMs) {
+                        process.destroyForcibly();
+                        throw new RuntimeException("Python脚本执行超时");
+                    }
+                    // 等待一段时间再检查
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("执行被中断");
+                    }
+                }
+            }
+            
+            return output.toString();
+            
+        } catch (Exception e) {
+            throw new RuntimeException("执行Python脚本失败: " + e.getMessage(), e);
+        } finally {
+            if (process != null) {
+                process.destroy();
             }
         }
     }
-    
+
     /**
      * 执行Python脚本
      */
