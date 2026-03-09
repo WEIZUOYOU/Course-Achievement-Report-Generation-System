@@ -2656,7 +2656,6 @@ export default {
      */
     async processData() {
       try {
-        // 1. 显示检测状态
         console.log('开始处理数据，首先检测表格状态...')
         
         this.dataProcessing.status = 'validating'
@@ -2664,40 +2663,54 @@ export default {
         this.dataProcessing.progress = 10
         this.dataProcessing.details = '检查表格组件是否就绪'
         
-        // 2. 等待表格完全就绪
+        // 1. 先保存当前数据（如果表格就绪）
+        await this.saveTableData()
+        
+        // 2. 等待表格完全就绪（使用更可靠的检测方法）
+        let luckysheet = null
         try {
-          const luckysheet = await this.waitForTableFullyReady()
+          luckysheet = await this.waitForTableFullyReady()
           console.log('表格完全就绪! sheet数量:', luckysheet.getAllSheets().length)
-          console.log('表格状态检测通过，可以安全提取数据')
           this.table.isReady = true
           this.dataProcessing.progress = 20
         } catch (error) {
           console.error('表格状态检测失败:', error)
-          this.dataProcessing.status = 'error'
-          this.dataProcessing.message = `表格未就绪: ${error.message}`
-          this.dataProcessing.progress = 0
           
-          await this.$confirm(
-            `表格组件未完全初始化：${error.message}\n\n请尝试：\n1. 点击"重试"重新检测表格\n2. 如果持续失败，请刷新页面`,
-            '表格未就绪',
-            {
-              confirmButtonText: '重试检测',
-              cancelButtonText: '取消',
-              type: 'warning'
-            }
-          ).then(() => {
-            // 用户选择重试，重置状态后重新调用
-            this.resetProcessingState()
-            this.processData()
-          }).catch(() => {
-            // 用户取消
-            this.resetProcessingState()
-            this.$message.info('已取消数据处理')
-          })
-          return
+          // 尝试重新初始化表格
+          this.dataProcessing.details = '表格未就绪，尝试重新初始化...'
+          
+          // 重新加载 iframe
+          this.luckysheetUrl = process.env.VUE_APP_BASE_API + "/luckysheet.html?t=" + Date.now()
+          
+          // 等待重新加载
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+          // 再次尝试获取实例
+          try {
+            luckysheet = await this.waitForTableFullyReady()
+            console.log('重新初始化后表格就绪')
+            this.table.isReady = true
+          } catch (retryError) {
+            this.dataProcessing.status = 'error'
+            this.dataProcessing.message = '表格组件未加载'
+            this.dataProcessing.progress = 0
+            
+            await this.$confirm(
+              `表格组件未完全初始化，请尝试刷新页面。\n\n错误: ${error.message}`,
+              '表格未就绪',
+              {
+                confirmButtonText: '刷新页面',
+                cancelButtonText: '取消',
+                type: 'error'
+              }
+            ).then(() => {
+              window.location.reload()
+            })
+            return
+          }
         }
         
-        // 3. 检查是否有保存的数据需要恢复
+        // 3. 检查是否有保存的数据
         this.dataProcessing.message = '正在检查数据状态...'
         this.dataProcessing.progress = 25
         
@@ -2705,6 +2718,18 @@ export default {
         if (savedData) {
           console.log('检测到已保存的数据')
           this.dataProcessing.details = '检测到未完成的数据，正在恢复...'
+          
+          // 尝试恢复数据到表格
+          try {
+            const restored = await this.restoreTableData()
+            if (restored) {
+              console.log('数据恢复成功')
+              // 重新获取表格实例（因为恢复后可能需要重新获取）
+              luckysheet = await this.waitForTableFullyReady()
+            }
+          } catch (restoreError) {
+            console.warn('恢复数据失败:', restoreError)
+          }
         }
         
         // 4. 提取表格数据
@@ -2772,14 +2797,13 @@ export default {
               }
             )
           } catch {
-            // 用户取消处理
             this.resetProcessingState()
             this.$message.info('已取消数据处理，请修改数据后重试')
             return
           }
         }
         
-        // 9. 保存当前数据到本地存储（备份）
+        // 9. 再次保存数据（确保最新数据被保存）
         this.dataProcessing.status = 'saving'
         this.dataProcessing.message = '正在保存数据备份...'
         this.dataProcessing.progress = 70
@@ -2802,7 +2826,6 @@ export default {
         try {
           const response = await this.submitForProcessing()
           
-          // 12. 处理成功
           console.log('数据处理成功:', response)
           
           this.dataProcessing.status = 'processing'
@@ -2821,10 +2844,8 @@ export default {
           this.dataProcessing.progress = 0
           this.dataProcessing.error = error.message
           
-          // 记录错误日志
           this.logProcessingError(error)
           
-          // 显示错误信息并提供重试选项
           await this.$confirm(
             `数据处理失败：${error.message}\n\n是否重试？`,
             '处理失败',
@@ -2834,17 +2855,14 @@ export default {
               type: 'error'
             }
           ).then(() => {
-            // 用户选择重试
             this.resetProcessingState()
             this.processData()
           }).catch(() => {
-            // 用户选择返回修改
             this.returnToDataEntryWithRecovery()
           })
         }
         
       } catch (error) {
-        // 全局错误处理
         console.error('数据处理过程中发生未预期的错误:', error)
         
         this.dataProcessing.status = 'error'
@@ -2854,7 +2872,6 @@ export default {
         this.$message.error(`数据处理失败: ${error.message}`)
         this.logProcessingError(error)
         
-        // 尝试恢复数据
         await this.returnToDataEntryWithRecovery()
       }
     },
@@ -3321,11 +3338,17 @@ export default {
      * 提取表格数据
      */
     async extractTableData() {
-      return new Promise((resolve, reject) => {
+      return new Promise(async (resolve, reject) => {
         // 确保表格就绪
         if (!this.table.isReady) {
-          reject(new Error('表格未就绪，请稍后重试'))
-          return
+          try {
+            // 尝试等待表格就绪
+            await this.waitForTableFullyReady()
+            this.table.isReady = true
+          } catch (error) {
+            reject(new Error('表格未就绪，请稍后重试'))
+            return
+          }
         }
         
         const iframe = this.$refs.luckysheetFrame
@@ -3341,6 +3364,12 @@ export default {
         }
         
         try {
+          // 确保 getAllSheets 方法存在
+          if (typeof luckysheet.getAllSheets !== 'function') {
+            reject(new Error('表格API未就绪'))
+            return
+          }
+          
           const allSheets = luckysheet.getAllSheets() || []
           
           if (allSheets.length === 0) {
@@ -3348,19 +3377,29 @@ export default {
             return
           }
           
-          const sheets = allSheets.map((sheet, index) => {
+          const sheets = []
+          
+          for (let i = 0; i < allSheets.length; i++) {
+            const sheet = allSheets[i]
             try {
+              // 确保 getSheetData 方法存在
+              if (typeof luckysheet.getSheetData !== 'function') {
+                console.warn('getSheetData方法不存在')
+                continue
+              }
+              
               const sheetData = luckysheet.getSheetData(sheet.id)
               
-              return {
-                name: sheet.name || `Sheet${index + 1}`,
-                data: this.convertSheetData(sheetData || [])
+              if (sheetData && Array.isArray(sheetData) && sheetData.length > 0) {
+                sheets.push({
+                  name: sheet.name || `Sheet${i + 1}`,
+                  data: this.convertSheetData(sheetData)
+                })
               }
-            } catch (error) {
-              console.warn(`提取sheet ${sheet.name} 失败:`, error)
-              return null
+            } catch (sheetError) {
+              console.warn(`提取sheet ${sheet.name} 失败:`, sheetError)
             }
-          }).filter(sheet => sheet !== null)
+          }
           
           if (sheets.length === 0) {
             reject(new Error('所有表格数据提取失败'))
@@ -3538,12 +3577,12 @@ export default {
           attempts++
           
           try {
-            // 1. 检查iframe是否存在
+            // 1. 检查iframe引用是否存在（这是关键修改）
             const iframe = this.$refs.luckysheetFrame
             if (!iframe) {
-              console.log(`[${attempts}] iframe不存在`)
+              console.log(`[${attempts}] iframe引用不存在`)
               if (attempts >= maxAttempts) {
-                reject(new Error('iframe加载超时'))
+                reject(new Error('iframe引用未找到'))
                 return
               }
               setTimeout(check, interval)
@@ -3573,9 +3612,9 @@ export default {
               return
             }
             
-            // 4. 检查关键API是否可用
+            // 4. 检查关键API
             if (typeof luckysheet.getAllSheets !== 'function') {
-              console.log(`[${attempts}] 关键API不可用`)
+              console.log(`[${attempts}] getAllSheets方法不存在`)
               if (attempts >= maxAttempts) {
                 reject(new Error('Luckysheet API未就绪'))
                 return
@@ -3584,7 +3623,7 @@ export default {
               return
             }
             
-            // 5. 实际测试API调用
+            // 5. 测试API
             try {
               const sheets = luckysheet.getAllSheets()
               if (!sheets) {
@@ -3757,9 +3796,10 @@ export default {
           
           allSheets.forEach((sheet, index) => {
             try {
+              // 获取完整的数据而不是仅仅getSheetData
               const sheetData = luckysheet.getSheetData(sheet.id)
               
-              // 转换为保存格式
+              // 转换为保存格式 - 使用完整的celldata
               const celldata = []
               if (sheetData && Array.isArray(sheetData)) {
                 for (let r = 0; r < sheetData.length; r++) {
@@ -3768,9 +3808,19 @@ export default {
                     for (let c = 0; c < row.length; c++) {
                       const cell = row[c]
                       if (cell != null) {
-                        const value = this.extractCellValue(cell)
-                        if (value !== '' && value != null) {
-                          celldata.push({ r, c, v: value })
+                        // 保存完整的单元格对象而不是仅仅值
+                        if (typeof cell === 'object') {
+                          celldata.push({
+                            r: r,
+                            c: c,
+                            v: cell // 保存完整的单元格对象
+                          })
+                        } else {
+                          celldata.push({
+                            r: r,
+                            c: c,
+                            v: { v: cell } // 包装成对象
+                          })
                         }
                       }
                     }
@@ -3778,21 +3828,49 @@ export default {
                 }
               }
               
-              // 检查是否有实际数据
+              // 检查是否有实际数据（至少有一行非空数据）
               const hasActualData = celldata.some(cell => 
-                cell.r > 0 && cell.c >= 1 && cell.v.toString().trim() !== ''
+                cell.r > 0 && // 不是表头行
+                (cell.v && (
+                  (typeof cell.v === 'object' && cell.v.v) || 
+                  (typeof cell.v !== 'object' && cell.v)
+                ))
               )
               
               if (hasActualData) {
+                // 保存完整的sheet配置
                 sheetsToSave.push({
                   name: sheet.name || `Sheet${index + 1}`,
-                  index: sheet.index || index,
-                  celldata,
+                  index: index,
+                  order: index,
+                  celldata: celldata,
                   config: {
                     columnlen: sheet.config?.columnlen || {},
-                    rowlen: sheet.config?.rowlen || 40
+                    rowlen: sheet.config?.rowlen || 40,
+                    merge: sheet.config?.merge || {},
+                    borderInfo: sheet.config?.borderInfo || [],
+                    authority: null,
+                    visibledatarow: sheet.config?.visibledatarow || [],
+                    visibledatacolumn: sheet.config?.visibledatacolumn || [],
+                    rowhidden: sheet.config?.rowhidden || {},
+                    colhidden: sheet.config?.colhidden || {},
+                    chart: sheet.config?.chart || [],
+                    filter_select: null,
+                    filter: null,
+                    luckysheet_select_save: [],
+                    calcChain: [],
+                    isPivotTable: false,
+                    pivotTable: null,
+                    dataVerification: sheet.config?.dataVerification || {},
+                    frozen: sheet.config?.frozen || null,
+                    images: [],
+                    hyperlinks: null,
+                    conditionformat: null
                   }
                 })
+                console.log(`Sheet ${sheet.name} 有数据，已加入保存队列`)
+              } else {
+                console.log(`Sheet ${sheet.name} 无有效数据，跳过保存`)
               }
             } catch (error) {
               console.error(`保存sheet ${sheet.name} 失败:`, error)
@@ -3802,7 +3880,8 @@ export default {
           if (sheetsToSave.length > 0) {
             const savedData = {
               timestamp: Date.now(),
-              sheets: sheetsToSave
+              sheets: sheetsToSave,
+              version: '2.0' // 添加版本号，方便后续兼容
             }
             
             localStorage.setItem(this.table.backupKey, JSON.stringify(savedData))
@@ -3850,28 +3929,49 @@ export default {
           return
         }
         
-        // 检查数据时效性（24小时内）
-        const now = Date.now()
-        const oneDay = 24 * 60 * 60 * 1000
-        if (now - parsedData.timestamp > oneDay) {
-          console.log('保存的数据已过期')
+        // 检查数据格式
+        if (!parsedData.sheets || !Array.isArray(parsedData.sheets) || parsedData.sheets.length === 0) {
+          console.log('保存的数据格式无效')
           localStorage.removeItem(this.table.backupKey)
           resolve(false)
           return
         }
         
-        // 等待表格就绪
-        this.waitForTableReady().then((luckysheet) => {
+        // 检查数据时效性（24小时内）
+        if (parsedData.timestamp) {
+          const now = Date.now()
+          const oneDay = 24 * 60 * 60 * 1000
+          if (now - parsedData.timestamp > oneDay) {
+            console.log('保存的数据已过期')
+            localStorage.removeItem(this.table.backupKey)
+            resolve(false)
+            return
+          }
+        }
+          
+        // 等待表格就绪 - 使用修改后的方法
+        this.waitForTableFullyReady().then((luckysheet) => {
           if (!luckysheet) {
+            console.log('获取表格实例失败')
             resolve(false)
             return
           }
           
+          // 传递 luckysheet 实例，而不是重新获取
           this.loadDataToTable(luckysheet, parsedData.sheets)
-            .then(resolve)
-            .catch(() => resolve(false))
+            .then((result) => {
+              console.log('数据恢复成功')
+              resolve(true)
+            })
+            .catch((error) => {
+              console.error('加载数据到表格失败:', error)
+              resolve(false)
+            })
             
-        }).catch(() => resolve(false))
+        }).catch((error) => {
+          console.log('等待表格就绪失败:', error)
+          resolve(false)
+        })
       })
     },
 
@@ -3953,61 +4053,114 @@ export default {
      * 加载数据到表格
      */
     async loadDataToTable(luckysheet, sheets) {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         try {
-          // 准备数据
+          console.log('准备恢复数据，sheets数量:', sheets.length)
+          
+          // 准备数据，确保格式完全符合 LuckySheet 要求
           const formattedSheets = sheets.map((sheet, index) => {
-            // 清理celldata
-            const cleanCelldata = []
+            // 清理并格式化 celldata
+            let cleanCelldata = []
             if (sheet.celldata && Array.isArray(sheet.celldata)) {
-              sheet.celldata.forEach(cell => {
-                if (cell && typeof cell === 'object') {
-                  const r = Number(cell.r)
-                  const c = Number(cell.c)
-                  
-                  if (!isNaN(r) && !isNaN(c) && cell.v !== undefined) {
-                    cleanCelldata.push({
-                      r: r,
-                      c: c,
-                      v: cell.v
-                    })
-                  }
-                }
+              // 过滤无效数据
+              cleanCelldata = sheet.celldata
+                .filter(cell => cell && typeof cell === 'object' && 
+                      cell.r !== undefined && cell.c !== undefined && cell.v !== undefined)
+                .map(cell => ({
+                  r: Number(cell.r),
+                  c: Number(cell.c),
+                  v: cell.v
+                }))
+            }
+            
+            // 如果没有数据，添加一个空单元格来避免空数据错误
+            if (cleanCelldata.length === 0) {
+              cleanCelldata.push({
+                r: 0,
+                c: 0,
+                v: ''
               })
             }
             
-            // 排序
-            cleanCelldata.sort((a, b) => {
-              if (a.r !== b.r) return a.r - b.r
-              return a.c - b.c
-            })
-            
+            // 确保每个sheet都有必要的属性
             return {
               name: sheet.name || `Sheet${index + 1}`,
-              index: sheet.index || index,
+              index: index,
               status: 1,
-              order: sheet.order || index,
+              order: index,
               celldata: cleanCelldata,
               config: {
                 columnlen: sheet.config?.columnlen || {},
-                rowlen: sheet.config?.rowlen || 40
+                rowlen: sheet.config?.rowlen || 40,
+                merge: {}, // 必须有merge字段，即使为空
+                borderInfo: [], // 必须有borderInfo字段
+                authority: null, // 权限设置
+                visibledatarow: [], // 可见行
+                visibledatacolumn: [], // 可见列
+                rowhidden: {}, // 隐藏行
+                colhidden: {}, // 隐藏列
+                chart: [], // 图表配置
+                filter_select: null, // 筛选
+                filter: null, // 筛选条件
+                luckysheet_select_save: [], // 选区保存
+                calcChain: [], // 公式链
+                isPivotTable: false, // 是否是数据透视表
+                pivotTable: null, // 数据透视表配置
+                dataVerification: {}, // 数据验证
+                frozen: null, // 冻结设置
+                images: [], // 图片
+                hyperlinks: null, // 超链接
+                conditionformat: null // 条件格式
               }
             }
           })
           
-          // 销毁现有实例
+          console.log('格式化后的数据:', JSON.stringify(formattedSheets[0]).substring(0, 200) + '...')
+          
+          // 检查是否有保存的数据需要恢复
+          if (!luckysheet) {
+            reject(new Error('Luckysheet实例不存在'))
+            return
+          }
+          
+           // 清理现有实例
           if (typeof luckysheet.destroy === 'function') {
             try {
               luckysheet.destroy()
+              console.log('已销毁现有表格实例')
             } catch (e) {
-              console.log('清理表格实例:', e.message)
+              console.log('销毁表格实例失败:', e.message)
             }
           }
           
-          // 重新创建表格
+          // 等待DOM更新
           setTimeout(() => {
             try {
-              luckysheet.create({
+              // 关键修改：通过 iframe 获取容器，而不是 document.getElementById
+              const iframe = this.$refs.luckysheetFrame
+              if (!iframe || !iframe.contentWindow) {
+                reject(new Error('iframe未就绪'))
+                return
+              }
+              
+              // 检查容器是否存在
+              const container = iframe.contentWindow.document.getElementById('luckysheet')
+              if (!container) {
+                reject(new Error('表格容器未找到'))
+                return
+              }
+              
+              // 清空容器
+              container.innerHTML = ''
+              
+              // 创建新实例（使用 iframe 中的 luckysheet 对象）
+              const iframeLuckysheet = iframe.contentWindow.luckysheet
+              if (!iframeLuckysheet) {
+                reject(new Error('iframe中的luckysheet对象不存在'))
+                return
+              }
+              
+              iframeLuckysheet.create({
                 container: 'luckysheet',
                 lang: 'zh',
                 data: formattedSheets,
@@ -4016,21 +4169,31 @@ export default {
                 showtoolbar: true,
                 showinfobar: false,
                 showsheetbar: true,
-                showstatisticBar: true
+                showstatisticBar: true,
+                allowEdit: true,
+                sheetFormulaBar: false,
+                enableAddRow: true,
+                enableAddCol: true,
+                row: 40,
+                column: 20,
+                forceCalculation: false
               })
               
-              console.log('数据恢复成功')
-              resolve(true)
+              console.log('数据恢复成功，表格已重新创建')
+              
+              setTimeout(() => {
+                resolve(true)
+              }, 500)
               
             } catch (error) {
-              console.error('加载数据失败:', error)
-              resolve(false)
+              console.error('创建表格失败:', error)
+              reject(error)
             }
           }, 300)
           
         } catch (error) {
           console.error('准备数据失败:', error)
-          resolve(false)
+          reject(error)
         }
       })
     },
