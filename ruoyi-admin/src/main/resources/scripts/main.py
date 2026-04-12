@@ -9,6 +9,37 @@ import numpy as np
 import re
 import base64
 import io
+from pathlib import Path
+
+def convert_sheets_to_csv(sheets_data):
+    """将 sheets_data 转换为三个 CSV 文件（期末/平时/上机）"""
+    for sheet in sheets_data:
+        sheet_name = sheet.get('name', '')
+        data_rows = sheet.get('data', [])
+        if not data_rows:
+            continue
+        
+        # 将数据转换为 DataFrame（第一行为表头）
+        if len(data_rows) < 1:
+            continue
+        headers = data_rows[0]
+        rows = data_rows[1:] if len(data_rows) > 1 else []
+        df = pd.DataFrame(rows, columns=headers)
+        
+        # 根据 sheet 名称决定文件名
+        if '期末' in sheet_name or 'final' in sheet_name.lower():
+            filename = 'final_exam_scores_template.csv'
+        elif '平时' in sheet_name or 'regular' in sheet_name.lower():
+            filename = 'regular_scores_template.csv'
+        elif '上机' in sheet_name or 'lab' in sheet_name.lower():
+            filename = 'lab_scores_template.csv'
+        else:
+            # 默认按原名称
+            filename = f"{sheet_name}.csv"
+        
+        # 保存 CSV（覆盖）
+        df.to_csv(filename, index=False, encoding='utf-8-sig')
+        print(f"[INFO] 已保存 CSV: {filename} (行数: {len(rows)})")
 
 # 改进的字体配置函数
 def configure_matplotlib():
@@ -172,99 +203,68 @@ def read_all_csv(config):
 
     # 读取平时成绩 CSV
     regular_df = None
-    try:
-        if config['regularGrade'] <= 0:
-            print("[INFO] 配置中平时成绩权重为0，跳过平时成绩文件读取")
-            regular_df = pd.DataFrame(columns=['学号', '姓名', '平时成绩总分'])  # 空表格
-        else:
-            regular_df = safe_read_csv('regular_scores_template.csv')
-            if regular_df is not None:
-                print("[OK] 成功读取 regular_scores_template.csv")
-                # 将学号列转换为字符串类型
-                regular_df['学号'] = regular_df['学号'].astype(str)
-                # 确保有平时成绩总分列
-                if '平时成绩总分' not in regular_df.columns:
-                    print("[WARNING] regular_scores_template.csv中缺少'平时成绩总分'列，已添加默认值0")
-                    regular_df['平时成绩总分'] = 0
-                regular_df = regular_df[['学号', '姓名', '平时成绩总分']].fillna(0)  # 保留学号、姓名和总分列
-            else:
-                print("[WARNING] 无法读取平时成绩文件，使用空的数据框")
-                regular_df = pd.DataFrame(columns=['学号', '姓名', '平时成绩总分'])
-    except Exception as e:
-        print(f"[ERROR] 处理平时成绩文件时出错: {e}")
+    if config['regularGrade'] <= 0:
         regular_df = pd.DataFrame(columns=['学号', '姓名', '平时成绩总分'])
-    
+    else:
+        regular_df = safe_read_csv('regular_scores_template.csv')
+        if regular_df is not None:
+            regular_df = regular_df.dropna(how='all')  # 删除全空行
+            regular_df = drop_empty_columns(regular_df)
+            regular_df['学号'] = regular_df['学号'].astype(str)
+            if '平时成绩总分' not in regular_df.columns:
+                regular_df['平时成绩总分'] = 0
+            regular_df = regular_df[['学号', '姓名', '平时成绩总分']].fillna(0)
     dfs.append(regular_df)
 
     # 读取上机成绩 CSV
     lab_df = None
-    try:
-        if config['labGrade'] <= 0:
-            print("[INFO] 配置中上机成绩权重为0，跳过上机成绩文件读取")
-            lab_df = pd.DataFrame(columns=['学号', '姓名', '上机成绩总分'])  # 空表格
-        else:
-            lab_df = safe_read_csv('lab_scores_template.csv')
-            if lab_df is not None:
-                print("[OK] 成功读取 lab_scores_template.csv")
-                # 将学号列转换为字符串类型
-                lab_df['学号'] = lab_df['学号'].astype(str)
-                # 确保有上机成绩总分列
-                if '上机成绩总分' not in lab_df.columns:
-                    print("[WARNING] lab_scores_template.csv中缺少'上机成绩总分'列，已添加默认值0")
-                    lab_df['上机成绩总分'] = 0
-                lab_df = lab_df[['学号', '姓名', '上机成绩总分']].fillna(0)  # 保留学号、姓名和总分列
-            else:
-                print("[WARNING] 无法读取上机成绩文件，使用空的数据框")
-                lab_df = pd.DataFrame(columns=['学号', '姓名', '上机成绩总分'])
-    except Exception as e:
-        print(f"[ERROR] 处理上机成绩文件时出错: {e}")
+    if config['labGrade'] <= 0:
         lab_df = pd.DataFrame(columns=['学号', '姓名', '上机成绩总分'])
-    
+    else:
+        lab_df = safe_read_csv('lab_scores_template.csv')
+        if lab_df is not None:
+            lab_df = lab_df.dropna(how='all')  # 删除全空行
+            lab_df = drop_empty_columns(lab_df)
+            lab_df['学号'] = lab_df['学号'].astype(str)
+            if '上机成绩总分' not in lab_df.columns:
+                lab_df['上机成绩总分'] = 0
+            lab_df = lab_df[['学号', '姓名', '上机成绩总分']].fillna(0)
     dfs.append(lab_df)
 
-    # 读取期末考核小题成绩 CSV
-    final_df = None
-    try:
-        final_df = safe_read_csv('final_exam_scores_template.csv')
-        if final_df is not None:
-            print("[OK] 成功读取 final_exam_scores_template.csv")
-            # 将学号列转换为字符串类型
-            final_df['学号'] = final_df['学号'].astype(str)
-            final_df = final_df.fillna(0)  # 保留全部列（包含学号和各小题分数）
-            dfs.append(final_df)
-        else:
-            print("[ERROR] 找不到期末考试成绩文件，这是必需的")
-            return None
-    except Exception as e:
-        print(f"[ERROR] 处理期末考试文件时出错: {e}")
+    # 读取期末考核 CSV
+    final_df = safe_read_csv('final_exam_scores_template.csv')
+    if final_df is not None:
+        final_df = final_df.dropna(how='all')  # 删除全空行
+        final_df = drop_empty_columns(final_df)
+        final_df['学号'] = final_df['学号'].astype(str)
+        final_df = final_df.fillna(0)
+        dfs.append(final_df)
+    else:
+        print("[ERROR] 找不到期末考试成绩文件")
         return None
 
     # 合并所有 DataFrame，以学号为主键进行外连接
-    if dfs and len(dfs) > 0:
-        merged_df = dfs[0]
-        for i, df in enumerate(dfs[1:], 1):
-            if not df.empty:
-                merged_df = pd.merge(merged_df, df, on=['学号', '姓名'], how='outer')
-                print(f"[INFO] 合并第{i+1}个数据框，当前记录数: {len(merged_df)}")
+    merged_df = dfs[0]
+    for i, df in enumerate(dfs[1:], 1):
+        if not df.empty:
+            merged_df = pd.merge(merged_df, df, on=['学号', '姓名'], how='outer')
+            print(f"[INFO] 合并第{i+1}个数据框，当前记录数: {len(merged_df)}")
 
-        # 填充所有 NaN 值为 0，以确保计算不受缺失值影响
-        merged_df = merged_df.fillna(0)
-        
-        # 确保必需的列存在
-        if '平时成绩总分' not in merged_df.columns:
-            merged_df['平时成绩总分'] = 0
-            print("[WARNING] 合并后缺少'平时成绩总分'列，已添加默认值0")
-        
-        if '上机成绩总分' not in merged_df.columns:
-            merged_df['上机成绩总分'] = 0
-            print("[WARNING] 合并后缺少'上机成绩总分'列，已添加默认值0")
-        
-        print(f"[OK] 成功合并数据，共 {len(merged_df)} 条记录")
-        print(f"[INFO] 数据列: {list(merged_df.columns)}")
-        return merged_df
-    else:
-        print("[ERROR] 没有找到任何可用的 CSV 文件")
-        return None
+    # 填充所有 NaN 值为 0，以确保计算不受缺失值影响
+    merged_df = merged_df.fillna(0)
+
+    # 确保必需的列存在
+    if '平时成绩总分' not in merged_df.columns:
+        merged_df['平时成绩总分'] = 0
+        print("[WARNING] 合并后缺少'平时成绩总分'列，已添加默认值0")
+
+    if '上机成绩总分' not in merged_df.columns:
+        merged_df['上机成绩总分'] = 0
+        print("[WARNING] 合并后缺少'上机成绩总分'列，已添加默认值0")
+
+    print(f"[OK] 成功合并数据，共 {len(merged_df)} 条记录")
+    print(f"[INFO] 数据列: {list(merged_df.columns)}")
+    return merged_df
 
 # 计算每个课程目标和考核方式的采分项满分值
 def calculate_full_scores(config):
@@ -287,21 +287,21 @@ def calculate_full_scores(config):
         course_target_full_scores[target_name] = {}
 
         # 计算平时成绩的采分项满分值
-        if target.get('regularGrade', 0) > 0:
+        if target.get('regularGrade', 0) > 0 and regular_grade_ratio > 0:
             regular_ratio = target['regularGrade']
             course_target_full_scores[target_name]['平时成绩'] = (
                 regular_max_score * (regular_ratio / regular_grade_ratio)
             )
 
         # 计算上机成绩的采分项满分值
-        if target.get('lab', 0) > 0:
+        if target.get('lab', 0) > 0 and lab_grade_ratio > 0:
             lab_ratio = target['lab']
             course_target_full_scores[target_name]['上机成绩'] = (
                 lab_max_score * (lab_ratio / lab_grade_ratio)
             )
 
         # 计算期末考试的采分项满分值
-        if target.get('finalExam', 0) > 0:
+        if target.get('finalExam', 0) > 0 and final_exam_ratio > 0:
             final_ratio = target['finalExam']
             course_target_full_scores[target_name]['期末考试'] = (
                 final_max_score * (final_ratio / final_exam_ratio)
@@ -815,32 +815,30 @@ def plot_achievement_statistics(split_score_df, achievement_table_df, config):
         import traceback
         traceback.print_exc()
 
+# 移除全空列
+def drop_empty_columns(df):
+    # 删除列名包含 'Unnamed' 的列
+    unnamed_cols = [col for col in df.columns if 'Unnamed' in str(col)]
+    if unnamed_cols:
+        df = df.drop(columns=unnamed_cols)
+        print(f"[INFO] 已删除 {len(unnamed_cols)} 个空列", flush=True)
+    # 删除全为空的列
+    df = df.dropna(axis=1, how='all')
+    return df
+
 if __name__ == "__main__":
     print("=== 课程目标达成评价系统 ===")
     print("正在初始化...")
     
-    # 检查必要文件
     required_files = ['exam_config.json']
-    csv_files = ['final_exam_scores_template.csv', 'regular_scores_template.csv', 'lab_scores_template.csv']
-    
-    missing_files = []
-    for file in required_files:
-        if not os.path.exists(file):
-            missing_files.append(file)
-    
+    missing_files = [f for f in required_files if not os.path.exists(f)]
     if missing_files:
         print(f"[ERROR] 缺少必要文件: {missing_files}")
         sys.exit(1)
     
-    # 检查CSV文件
-    available_csv = []
-    for file in csv_files:
-        if os.path.exists(file):
-            available_csv.append(file)
-            print(f"[OK] 找到数据文件: {file}")
-        else:
-            print(f"[WARNING] 未找到数据文件: {file}")
-    
+    # 检查 CSV 文件（仅提示，不强制退出，因为可能部分考核方式未选择）
+    csv_files = ['final_exam_scores_template.csv', 'regular_scores_template.csv', 'lab_scores_template.csv']
+    available_csv = [f for f in csv_files if os.path.exists(f)]
     if not available_csv:
         print("[ERROR] 没有找到任何CSV数据文件")
         sys.exit(1)

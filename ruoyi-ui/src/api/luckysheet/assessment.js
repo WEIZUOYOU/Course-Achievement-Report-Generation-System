@@ -37,6 +37,16 @@ export function processData(excelData, configId) {
   })
 }
 
+// 直接处理手动配置数据
+export function processDataDirect(data) {
+  return request({
+    url: '/luckysheet/process-data-direct',
+    method: 'post',
+    data: data,
+    timeout: 300000
+  })
+}
+
 // 下载报告
 export function downloadReport(reportId, configId) {
   return request({

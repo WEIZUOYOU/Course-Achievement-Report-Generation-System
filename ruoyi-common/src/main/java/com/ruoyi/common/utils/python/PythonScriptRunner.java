@@ -102,10 +102,11 @@ public class PythonScriptRunner {
             
             // 重定向错误流到标准输出
             pb.redirectErrorStream(true);
-            
-            // 启动进程
+            pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+
             log.info("执行Python脚本: {} {}", pythonPath, scriptPath);
             Process process = pb.start();
+            process.getOutputStream().close();
             log.info("进程启动成功");
             
             // 读取输出
