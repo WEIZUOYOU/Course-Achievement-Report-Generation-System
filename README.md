@@ -1,95 +1,195 @@
-<p align="center">
-	<img alt="logo" src="https://oscimg.oschina.net/oscnet/up-d3d0a9303e11d522a06cd263f3079027715.png">
-</p>
-<h1 align="center" style="margin: 30px 0 30px; font-weight: bold;">RuoYi v3.8.9</h1>
-<h4 align="center">基于SpringBoot+Vue前后端分离的Java快速开发框架</h4>
-<p align="center">
-	<a href="https://gitee.com/y_project/RuoYi-Vue/stargazers"><img src="https://gitee.com/y_project/RuoYi-Vue/badge/star.svg?theme=dark"></a>
-	<a href="https://gitee.com/y_project/RuoYi-Vue"><img src="https://img.shields.io/badge/RuoYi-v3.8.9-brightgreen.svg"></a>
-	<a href="https://gitee.com/y_project/RuoYi-Vue/blob/master/LICENSE"><img src="https://img.shields.io/github/license/mashape/apistatus.svg"></a>
-</p>
+# Course Achievement Report Generation System
 
-## 平台简介
+## 项目简介
 
-若依是一套全部开源的快速开发平台，毫无保留给个人及企业免费使用。
+本系统是一个基于SpringBoot架构的课程达成度报告生成系统，旨在帮助教师高效管理课程考核数据、自动生成课程目标达成度分析报告。系统提供可视化的流程式操作界面，支持多种考核方式的灵活配置、课程目标权重分配、期末试卷命题表管理以及数据模板导出等功能。
 
-* 前端采用Vue、Element UI。
-* 后端采用Spring Boot、Spring Security、Redis & Jwt。
-* 权限认证使用Jwt，支持多终端认证系统。
-* 支持加载动态权限菜单，多方式轻松权限控制。
-* 高效率开发，使用代码生成器可以一键生成前后端代码。
-* 提供了技术栈（[Vue3](https://v3.cn.vuejs.org) [Element Plus](https://element-plus.org/zh-CN) [Vite](https://cn.vitejs.dev)）版本[RuoYi-Vue3](https://gitcode.com/yangzongzhuan/RuoYi-Vue3)，保持同步更新。
-* 提供了单应用版本[RuoYi-Vue-fast](https://gitcode.com/yangzongzhuan/RuoYi-Vue-fast)，Oracle版本[RuoYi-Vue-Oracle](https://gitcode.com/yangzongzhuan/RuoYi-Vue-Oracle)，保持同步更新。
-* 不分离版本，请移步[RuoYi](https://gitee.com/y_project/RuoYi)，微服务版本，请移步[RuoYi-Cloud](https://gitee.com/y_project/RuoYi-Cloud)
-* 阿里云折扣场：[点我进入](http://aly.ruoyi.vip)，腾讯云秒杀场：[点我进入](http://txy.ruoyi.vip)&nbsp;&nbsp;
+## 技术栈
 
-## 内置功能
+| 技术 | 版本 | 说明 |
+|------|------|------|
+| Spring Boot | 2.x | 后端框架 |
+| Vue.js | 2.x | 前端框架 |
+| Element UI | - | UI组件库 |
+| Maven | - | 项目构建工具 |
 
-1.  用户管理：用户是系统操作者，该功能主要完成系统用户配置。
-2.  部门管理：配置系统组织机构（公司、部门、小组），树结构展现支持数据权限。
-3.  岗位管理：配置系统用户所属担任职务。
-4.  菜单管理：配置系统菜单，操作权限，按钮权限标识等。
-5.  角色管理：角色菜单权限分配、设置角色按机构进行数据范围权限划分。
-6.  字典管理：对系统中经常使用的一些较为固定的数据进行维护。
-7.  参数管理：对系统动态配置常用参数。
-8.  通知公告：系统通知公告信息发布维护。
-9.  操作日志：系统正常操作日志记录和查询；系统异常信息日志记录和查询。
-10. 登录日志：系统登录日志记录查询包含登录异常。
-11. 在线用户：当前系统中活跃用户状态监控。
-12. 定时任务：在线（添加、修改、删除)任务调度包含执行结果日志。
-13. 代码生成：前后端代码的生成（java、html、xml、sql）支持CRUD下载 。
-14. 系统接口：根据业务代码自动生成相关的api接口文档。
-15. 服务监控：监视当前系统CPU、内存、磁盘、堆栈等相关信息。
-16. 缓存监控：对系统的缓存信息查询，命令统计等。
-17. 在线构建器：拖动表单元素生成相应的HTML代码。
-18. 连接池监视：监视当前系统数据库连接池状态，可进行分析SQL找出系统性能瓶颈。
+## 系统功能
 
-## 在线体验
+### 核心功能模块
 
-- admin/admin123  
-- 陆陆续续收到一些打赏，为了更好的体验已用于演示服务器升级。谢谢各位小伙伴。
+#### 1. 考核方式配置
+- 支持平时成绩、上机成绩、期末考核三种考核方式
+- 可灵活选择启用/禁用任意考核方式
+- 配置各考核方式的占比（总和需为100%）和总分
 
-演示地址：http://vue.ruoyi.vip  
-文档地址：http://doc.ruoyi.vip
+#### 2. 课程目标管理
+- 设置课程目标数量（1-10个）
+- 建立课程目标与考核方式的支撑关系
+- 分配各课程目标在不同考核方式中的占比
 
-## 演示图
+#### 3. 期末试卷命题表
+- 动态创建试卷大题和小题结构
+- 为每道题分配分值和对应的课程目标
+- 自动计算大题总分和试卷总分
+- 实时校验试卷总分与配置总分的一致性
 
-<table>
-    <tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/cd1f90be5f2684f4560c9519c0f2a232ee8.jpg"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/1cbcf0e6f257c7d3a063c0e3f2ff989e4b3.jpg"/></td>
-    </tr>
-    <tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-8074972883b5ba0622e13246738ebba237a.png"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-9f88719cdfca9af2e58b352a20e23d43b12.png"/></td>
-    </tr>
-    <tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-39bf2584ec3a529b0d5a3b70d15c9b37646.png"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-936ec82d1f4872e1bc980927654b6007307.png"/></td>
-    </tr>
-	<tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-b2d62ceb95d2dd9b3fbe157bb70d26001e9.png"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-d67451d308b7a79ad6819723396f7c3d77a.png"/></td>
-    </tr>	 
-    <tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/5e8c387724954459291aafd5eb52b456f53.jpg"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/644e78da53c2e92a95dfda4f76e6d117c4b.jpg"/></td>
-    </tr>
-	<tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-8370a0d02977eebf6dbf854c8450293c937.png"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-49003ed83f60f633e7153609a53a2b644f7.png"/></td>
-    </tr>
-	<tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-d4fe726319ece268d4746602c39cffc0621.png"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-c195234bbcd30be6927f037a6755e6ab69c.png"/></td>
-    </tr>
-    <tr>
-        <td><img src="https://oscimg.oschina.net/oscnet/b6115bc8c31de52951982e509930b20684a.jpg"/></td>
-        <td><img src="https://oscimg.oschina.net/oscnet/up-5e4daac0bb59612c5038448acbcef235e3a.png"/></td>
-    </tr>
-</table>
+#### 4. 数据导出
+- 导出考试配置文件（exam_config.json）
+- 生成成绩录入模板（CSV格式，含UTF-8 BOM）
+  - 期末考核成绩模板
+  - 平时成绩模板
+  - 上机成绩模板
 
+## 项目结构
 
-## 若依前后端分离交流群
+```
+Course Achievement Report Generation System/
+├── backend/                    # SpringBoot后端代码
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── java/          # Java源代码
+│   │   │   └── resources/     # 配置文件
+│   │   └── test/              # 测试代码
+│   └── pom.xml                # Maven配置
+├── frontend/                   # Vue前端代码
+│   ├── src/
+│   │   ├── components/        # Vue组件
+│   │   ├── views/             # 页面视图
+│   │   └── assets/            # 静态资源
+│   └── package.json           # 前端依赖配置
+└── docs/                       # 项目文档
+```
 
-QQ群： [![加入QQ群](https://img.shields.io/badge/已满-937441-blue.svg)](https://jq.qq.com/?_wv=1027&k=5bVB1og) [![加入QQ群](https://img.shields.io/badge/已满-887144332-blue.svg)](https://jq.qq.com/?_wv=1027&k=5eiA4DH) [![加入QQ群](https://img.shields.io/badge/已满-180251782-blue.svg)](https://jq.qq.com/?_wv=1027&k=5AxMKlC) [![加入QQ群](https://img.shields.io/badge/已满-104180207-blue.svg)](https://jq.qq.com/?_wv=1027&k=51G72yr) [![加入QQ群](https://img.shields.io/badge/已满-186866453-blue.svg)](https://jq.qq.com/?_wv=1027&k=VvjN2nvu) [![加入QQ群](https://img.shields.io/badge/已满-201396349-blue.svg)](https://jq.qq.com/?_wv=1027&k=5vYAqA05) [![加入QQ群](https://img.shields.io/badge/已满-101456076-blue.svg)](https://jq.qq.com/?_wv=1027&k=kOIINEb5) [![加入QQ群](https://img.shields.io/badge/已满-101539465-blue.svg)](https://jq.qq.com/?_wv=1027&k=UKtX5jhs) [![加入QQ群](https://img.shields.io/badge/已满-264312783-blue.svg)](https://jq.qq.com/?_wv=1027&k=EI9an8lJ) [![加入QQ群](https://img.shields.io/badge/已满-167385320-blue.svg)](https://jq.qq.com/?_wv=1027&k=SWCtLnMz) [![加入QQ群](https://img.shields.io/badge/已满-104748341-blue.svg)](https://jq.qq.com/?_wv=1027&k=96Dkdq0k) [![加入QQ群](https://img.shields.io/badge/已满-160110482-blue.svg)](https://jq.qq.com/?_wv=1027&k=0fsNiYZt) [![加入QQ群](https://img.shields.io/badge/已满-170801498-blue.svg)](https://jq.qq.com/?_wv=1027&k=7xw4xUG1) [![加入QQ群](https://img.shields.io/badge/已满-108482800-blue.svg)](https://jq.qq.com/?_wv=1027&k=eCx8eyoJ) [![加入QQ群](https://img.shields.io/badge/已满-101046199-blue.svg)](https://jq.qq.com/?_wv=1027&k=SpyH2875) [![加入QQ群](https://img.shields.io/badge/已满-136919097-blue.svg)](https://jq.qq.com/?_wv=1027&k=tKEt51dz) [![加入QQ群](https://img.shields.io/badge/已满-143961921-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=0vBbSb0ztbBgVtn3kJS-Q4HUNYwip89G&authKey=8irq5PhutrZmWIvsUsklBxhj57l%2F1nOZqjzigkXZVoZE451GG4JHPOqW7AW6cf0T&noverify=0&group_code=143961921) [![加入QQ群](https://img.shields.io/badge/已满-174951577-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=ZFAPAbp09S2ltvwrJzp7wGlbopsc0rwi&authKey=HB2cxpxP2yspk%2Bo3WKTBfktRCccVkU26cgi5B16u0KcAYrVu7sBaE7XSEqmMdFQp&noverify=0&group_code=174951577) [![加入QQ群](https://img.shields.io/badge/已满-161281055-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=Fn2aF5IHpwsy8j6VlalNJK6qbwFLFHat&authKey=uyIT%2B97x2AXj3odyXpsSpVaPMC%2Bidw0LxG5MAtEqlrcBcWJUA%2FeS43rsF1Tg7IRJ&noverify=0&group_code=161281055) [![加入QQ群](https://img.shields.io/badge/已满-138988063-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=XIzkm_mV2xTsUtFxo63bmicYoDBA6Ifm&authKey=dDW%2F4qsmw3x9govoZY9w%2FoWAoC4wbHqGal%2BbqLzoS6VBarU8EBptIgPKN%2FviyC8j&noverify=0&group_code=138988063) [![加入QQ群](https://img.shields.io/badge/已满-151450850-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=DkugnCg68PevlycJSKSwjhFqfIgrWWwR&authKey=pR1Pa5lPIeGF%2FFtIk6d%2FGB5qFi0EdvyErtpQXULzo03zbhopBHLWcuqdpwY241R%2F&noverify=0&group_code=151450850) [![加入QQ群](https://img.shields.io/badge/已满-224622315-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=F58bgRa-Dp-rsQJThiJqIYv8t4-lWfXh&authKey=UmUs4CVG5OPA1whvsa4uSespOvyd8%2FAr9olEGaWAfdLmfKQk%2FVBp2YU3u2xXXt76&noverify=0&group_code=224622315) [![加入QQ群](https://img.shields.io/badge/已满-287842588-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=Nxb2EQ5qozWa218Wbs7zgBnjLSNk_tVT&authKey=obBKXj6SBKgrFTJZx0AqQnIYbNOvBB2kmgwWvGhzxR67RoRr84%2Bus5OadzMcdJl5&noverify=0&group_code=287842588) [![加入QQ群](https://img.shields.io/badge/187944233-blue.svg)](http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=numtK1M_I4eVd2Gvg8qtbuL8JgX42qNh&authKey=giV9XWMaFZTY%2FqPlmWbkB9g3fi0Ev5CwEtT9Tgei0oUlFFCQLDp4ozWRiVIzubIm&noverify=0&group_code=187944233) 点击按钮入群。
+## 快速开始
+
+### 环境要求
+
+- JDK 1.8 或更高版本
+- Maven 3.6+
+- Node.js 14+
+- npm 或 yarn
+
+### 后端启动
+
+```bash
+# 进入后端目录
+cd backend
+
+# 编译打包
+mvn clean package
+
+# 运行应用
+java -jar target/course-achievement-0.0.1-SNAPSHOT.jar
+```
+
+后端服务默认运行在 `http://localhost:8080`
+
+### 前端启动
+
+```bash
+# 进入前端目录
+cd frontend
+
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run serve
+```
+
+前端应用默认运行在 `http://localhost:8081`
+
+## API接口说明
+
+### 配置导出接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/export/config` | 导出考试配置文件 |
+| POST | `/api/export/template` | 导出成绩录入模板 |
+
+### 请求示例
+
+```json
+// POST /api/export/config
+{
+  "regularGrade": 30,
+  "labGrade": 20,
+  "finalExam": 50,
+  "regularTotalScore": 100,
+  "labTotalScore": 100,
+  "finalTotalScore": 100,
+  "courseTargets": ["目标1", "目标2"],
+  "courseTargetProportions": [
+    {"regular": 40, "lab": 50, "final": 60},
+    {"regular": 60, "lab": 50, "final": 40}
+  ],
+  "examPaper": [
+    {
+      "questions": [
+        {"score": 10, "target": "目标1"},
+        {"score": 15, "target": "目标2"}
+      ],
+      "totalScore": 25
+    }
+  ]
+}
+```
+
+## 操作流程
+
+1. **选择考核方式** - 勾选需要使用的考核类型（默认全选）
+2. **设置占比与总分** - 填写各考核方式的占比（总和100%）和总分
+3. **设置课程目标** - 输入课程目标数量（1-10个）
+4. **建立支撑关系** - 勾选各考核方式支撑的课程目标
+5. **分配占比** - 为每个课程目标在各考核方式中分配占比
+6. **编辑命题表** - 构建期末试卷结构，分配分值和课程目标
+7. **导出文件** - 下载配置文件和成绩录入模板
+
+## 数据验证规则
+
+| 验证项 | 规则 |
+|--------|------|
+| 占比总和 | 所有启用考核方式的占比之和必须等于100% |
+| 考核方式内占比 | 各课程目标在同一考核方式中的占比之和必须为100% |
+| 总加权占比 | 所有课程目标的加权占比之和必须为100% |
+| 试卷总分 | 命题表计算的总分必须与配置的期末考核总分一致 |
+| 课程目标覆盖 | 所有课程目标必须在命题表中至少被分配一道题 |
+
+## 常见问题
+
+### Q: 为什么某些考核方式的输入框不显示？
+A: 请检查步骤1中是否勾选了对应的考核方式，未勾选的考核方式对应的配置项会被隐藏。
+
+### Q: 占比总和提示错误怎么办？
+A: 请确保所有已勾选考核方式的占比之和等于100%，如果某项考核方式不需要，请在步骤1中取消勾选。
+
+### Q: 生成的CSV文件打开后中文乱码？
+A: 系统已自动添加UTF-8 BOM头，如果仍出现乱码，请使用支持UTF-8的编辑器（如Excel需通过数据导入功能选择UTF-8编码打开）。
+
+## 版本历史
+
+| 版本 | 日期 | 更新内容 |
+|------|------|----------|
+| v1.0.0 | 2024-01 | 初始版本，实现核心功能 |
+
+## 贡献指南
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 提交 Pull Request
+
+## 许可证
+
+[MIT License](LICENSE)
+
+## 联系方式
+
+如有问题或建议，请通过以下方式联系：
+
+- 项目仓库：[[GitHub Repository URL](https://github.com/chenyinsu/Course-Achievement-Report-Generation-System)]
+---
+
+*本系统为课程达成度报告生成提供完整的解决方案，如有功能需求或改进建议，欢迎反馈。*
