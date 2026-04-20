@@ -64,6 +64,7 @@
                       :step="1" 
                       controls-position="right"
                       placeholder="请输入占比"
+                      @change="updateTargetProportions"
                     />%
                   </el-form-item>
                   <el-form-item label="总分：">
@@ -88,6 +89,7 @@
                       :step="1" 
                       controls-position="right"
                       placeholder="请输入占比"
+                      @change="updateTargetProportions"
                     />%
                   </el-form-item>
                   <el-form-item label="总分：">
@@ -112,6 +114,7 @@
                       :step="1" 
                       controls-position="right"
                       placeholder="请输入占比"
+                      @change="updateTargetProportions"
                     />%
                   </el-form-item>
                   <el-form-item label="总分：">
@@ -309,14 +312,21 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="总占比" width="120">
-                <template slot-scope="scope">
-                  <div style="font-weight: bold;">
-                    {{ scope.row.weightedTotal.toFixed(2) }}%
-                  </div>
-                </template>
-              </el-table-column>
             </el-table>
+            
+            <!-- 各考核方式占比汇总 -->
+            <div class="proportion-summary" style="margin-bottom: 20px; padding: 15px; background: #f5f7fa; border-radius: 4px;">
+              <p><strong>各考核方式课程目标占比汇总：</strong></p>
+              <p v-if="selectedAssessmentTypes.includes('regular')" :style="{color: getRegularTotal() === 100 ? '#67C23A' : '#F56C6C'}">
+                平时成绩：{{ getRegularTotal().toFixed(2) }}% {{ getRegularTotal() === 100 ? '✓' : '✗ (应为100%)' }}
+              </p>
+              <p v-if="selectedAssessmentTypes.includes('lab')" :style="{color: getLabTotal() === 100 ? '#67C23A' : '#F56C6C'}">
+                上机成绩：{{ getLabTotal().toFixed(2) }}% {{ getLabTotal() === 100 ? '✓' : '✗ (应为100%)' }}
+              </p>
+              <p v-if="selectedAssessmentTypes.includes('final')" :style="{color: getFinalTotal() === 100 ? '#67C23A' : '#F56C6C'}">
+                期末考核：{{ getFinalTotal().toFixed(2) }}% {{ getFinalTotal() === 100 ? '✓' : '✗ (应为100%)' }}
+              </p>
+            </div>
             
             <!-- 考核方式占比汇总信息 -->
             <div class="proportion-summary" style="margin-bottom: 20px; padding: 15px; background: #f5f7fa; border-radius: 4px;">
@@ -433,6 +443,7 @@
                   :type="paperValidationType"
                   show-icon
                   :closable="false"
+                  style="white-space: pre-line; line-height: 1.8;"
                 />
               </div>
             </div>
@@ -819,6 +830,22 @@ export default {
     }
   },
   
+  watch: {
+    // 监听 proportions 变化，自动重新计算加权占比
+    proportions: {
+      handler(newVal, oldVal) {
+        // 避免初始化时触发
+        if (oldVal && (newVal.regular !== oldVal.regular || 
+                       newVal.lab !== oldVal.lab || 
+                       newVal.final !== oldVal.final)) {
+          console.log('proportions 发生变化，重新计算加权占比', newVal)
+          this.updateTargetProportions()
+        }
+      },
+      deep: true
+    }
+  },
+  
   mounted() {
     document.title = '课程目标达成评价报告 - 若依管理系统'
     this.validateStep1()
@@ -1053,14 +1080,12 @@ export default {
         if (row.lab) supportedTypes.push('lab')
         if (row.final) supportedTypes.push('final')
         
-        // 平均分配占比到支持的考核方式
-        const defaultProportion = supportedTypes.length > 0 ? Math.round(100 / supportedTypes.length) : 0
-        
+        // 默认值设置为0，由用户手动输入
         const targetProportion = {
           target: `目标${index + 1}`,
-          regular: row.regular ? defaultProportion : 0,
-          lab: row.lab ? defaultProportion : 0,
-          final: row.final ? defaultProportion : 0,
+          regular: 0,
+          lab: 0,
+          final: 0,
           regularSupported: row.regular,
           labSupported: row.lab,
           finalSupported: row.final,
@@ -1081,6 +1106,10 @@ export default {
     },
     
     updateTargetProportions() {
+      console.log('=== updateTargetProportions 被调用 ===')
+      console.log('当前 proportions:', this.proportions)
+      console.log('targetProportionsTable:', this.targetProportionsTable)
+      
       this.targetProportionsTable.forEach(row => {
         // 计算加权后的占比
         // 加权占比 = 输入占比 × 考核方式占比 / 100
@@ -1090,12 +1119,45 @@ export default {
         
         // 计算总加权占比
         row.weightedTotal = row.weightedRegular + row.weightedLab + row.weightedFinal
+        
+        console.log(`${row.target} 计算结果:`, {
+          regular: row.regular,
+          lab: row.lab,
+          final: row.final,
+          weightedRegular: row.weightedRegular,
+          weightedLab: row.weightedLab,
+          weightedFinal: row.weightedFinal,
+          weightedTotal: row.weightedTotal
+        })
       })
+      
+      console.log('更新后的 targetProportionsTable:', this.targetProportionsTable)
     },
 
     // 获取总加权占比
     getTotalWeightedProportion() {
       return this.targetProportionsTable.reduce((sum, row) => sum + row.weightedTotal, 0)
+    },
+    
+    // 获取平时成绩输入占比总和
+    getRegularTotal() {
+      return this.targetProportionsTable
+        .filter(row => row.regularSupported)
+        .reduce((sum, row) => sum + (row.regular || 0), 0)
+    },
+    
+    // 获取上机成绩输入占比总和
+    getLabTotal() {
+      return this.targetProportionsTable
+        .filter(row => row.labSupported)
+        .reduce((sum, row) => sum + (row.lab || 0), 0)
+    },
+    
+    // 获取期末考核输入占比总和
+    getFinalTotal() {
+      return this.targetProportionsTable
+        .filter(row => row.finalSupported)
+        .reduce((sum, row) => sum + (row.final || 0), 0)
     },
     
     calculateTargetProportions() {
@@ -1286,9 +1348,44 @@ export default {
       const errors = []
       const warnings = []
       
-      // 1. 总分验证
-      if (this.totalScore !== this.scores.final) {
-        errors.push(`试卷总分${this.totalScore}与期末考核总分${this.scores.final}不匹配`)
+      // ========== 新增：严格合规性检查（仅当选择了期末考核时生效）==========
+      if (this.selectedAssessmentTypes.includes('final')) {
+        // 规则1：每道大题的第1小题分值必须 > 0
+        this.rows.forEach((row, rowIndex) => {
+          if (row.cells.length > 0 && row.cells[0].score <= 0) {
+            errors.push(`大题${rowIndex + 1}的第1小题分值必须大于0（当前为${row.cells[0].score}分）`)
+          }
+        })
+        
+        // 规则2：同一大题内，分值非零的小题必须连续排列在前面
+        this.rows.forEach((row, rowIndex) => {
+          let foundZero = false
+          row.cells.forEach((cell, colIndex) => {
+            if (cell.score <= 0) {
+              foundZero = true
+            } else if (foundZero && cell.score > 0) {
+              errors.push(`大题${rowIndex + 1}的小题${colIndex + 1}存在分值间断：非零小题必须连续排列在前面（不允许出现"0分小题之后又出现非零分小题"的情况）`)
+            }
+          })
+        })
+        
+        // 规则3：整个试卷至少有一个小题分值 > 0
+        const hasValidQuestion = this.rows.some(row => 
+          row.cells.some(cell => cell.score > 0)
+        )
+        if (!hasValidQuestion && this.rows.length > 0) {
+          errors.push('试卷中至少需要有一个小题的分值大于0')
+        }
+      }
+      
+      // ========== 原有验证逻辑 ==========
+      
+      // 1. 总分验证（使用容差比较，避免浮点数精度问题）
+      if (this.selectedAssessmentTypes.includes('final')) {
+        const scoreDiff = Math.abs(this.totalScore - this.scores.final)
+        if (scoreDiff > 0.01) {
+          errors.push(`试卷总分${this.totalScore.toFixed(2)}与期末考核总分${this.scores.final}不匹配（差值：${scoreDiff.toFixed(2)}）`)
+        }
       }
       
       // 2. 目标分配验证
@@ -1314,7 +1411,7 @@ export default {
       })
       
       // 3. 题目数量验证
-      if (totalQuestions === 0) {
+      if (totalQuestions === 0 && this.rows.length > 0) {
         errors.push('试卷中没有任何有分值的题目')
       }
       
@@ -1334,13 +1431,26 @@ export default {
       
       // 更新验证状态
       if (errors.length === 0) {
-        this.paperValidationMessage = warnings.length > 0 
-          ? `试卷设置基本正确！${warnings.join('；')}`
-          : '试卷设置正确！总分匹配且所有题目分配合理'
+        if (warnings.length > 0) {
+          this.paperValidationMessage = `试卷设置基本正确！\n${warnings.join('\n')}`
+        } else {
+          this.paperValidationMessage = '试卷设置正确！总分匹配且所有题目分配合理'
+        }
         this.paperValidationType = warnings.length > 0 ? 'warning' : 'success'
         this.isStep6Valid = true
       } else {
-        this.paperValidationMessage = `发现${errors.length}个问题：${errors.join('；')}${warnings.length > 0 ? `；${warnings.join('；')}` : ''}`
+        // 将错误和警告分行显示
+        const errorLines = errors.map((err, index) => `${index + 1}. ${err}`)
+        const warningLines = warnings.length > 0 
+          ? ['\n提示：', ...warnings.map((warn, index) => `${index + 1}. ${warn}`)]
+          : []
+        
+        this.paperValidationMessage = [
+          `发现${errors.length}个问题：`,
+          ...errorLines,
+          ...warningLines
+        ].join('\n')
+        
         this.paperValidationType = 'error'
         this.isStep6Valid = false
       }
@@ -1361,8 +1471,22 @@ export default {
     // 步骤6的下一步处理
     async handleStep6Next() {
       if (this.step6.loading) return
+      
       try {
         this.step6.loading = true
+        
+        // 执行验证
+        const validationResult = this.validateExamPaper()
+        
+        console.log('步骤6验证结果:', validationResult)
+        
+        // 如果有错误，不允许进入下一步
+        if (!validationResult.isValid) {
+          this.$message.error('试卷设置存在问题，请修正后再继续')
+          this.step6.loading = false
+          return
+        }
+        
         // 清除备份数据，避免恢复旧数据
         localStorage.removeItem(this.table.backupKey)
         // 直接跳转到步骤7
@@ -1463,6 +1587,7 @@ export default {
       }
       
       console.log('生成的简化课程配置:', config)
+      console.log('courseTargetProportions详情:', courseTargetProportions)
       return config
     },
 
@@ -3298,43 +3423,69 @@ export default {
         }
         
         try {
-          if (typeof luckysheet.getAllSheets !== 'function') {
-            reject(new Error('表格API未就绪'))
+          // 方案二：使用 getLuckysheetfile() 直接读取原始数据（最可靠）
+          console.log('\n========== 开始提取表格数据 ==========')
+          
+          if (typeof luckysheet.getLuckysheetfile !== 'function') {
+            reject(new Error('Luckysheet API未就绪：getLuckysheetfile方法不存在'))
             return
           }
           
-          const allSheets = luckysheet.getAllSheets() || []
+          const luckysheetfile = luckysheet.getLuckysheetfile()
           
-          if (allSheets.length === 0) {
-            reject(new Error('未找到任何表格数据'))
+          if (!luckysheetfile || !Array.isArray(luckysheetfile) || luckysheetfile.length === 0) {
+            reject(new Error('无法获取表格原始数据'))
             return
           }
           
+          console.log('获取到', luckysheetfile.length, '个Sheet')
+          
+          // 遍历所有sheet，直接使用data字段（已经是二维数组格式）
           const sheets = []
-          
-          for (let i = 0; i < allSheets.length; i++) {
-            const sheet = allSheets[i]
-            try {
-              if (typeof luckysheet.getSheetData !== 'function') {
-                console.warn('getSheetData方法不存在')
-                continue
+          luckysheetfile.forEach((sheet, idx) => {
+            console.log(`\nSheet ${idx + 1}:`, sheet.name)
+            console.log('  Sheet ID:', sheet.id)
+            console.log('  是否有data字段:', !!sheet.data)
+            
+            if (sheet.data && Array.isArray(sheet.data)) {
+              // 规范化单元格数据：将对象转换为纯值
+              const normalizeCell = (cell) => {
+                if (cell == null) return ''
+                if (typeof cell === 'object' && cell.v !== undefined) return cell.v
+                if (typeof cell === 'object') return ''
+                return cell
               }
               
-              const sheetData = luckysheet.getSheetData(sheet.id)
+              const normalizedData = sheet.data.map(row => {
+                if (!Array.isArray(row)) return []
+                return row.map(normalizeCell)
+              })
               
-              if (sheetData && Array.isArray(sheetData) && sheetData.length > 0) {
-                sheets.push({
-                  name: sheet.name || `Sheet${i + 1}`,
-                  data: this.convertSheetData(sheetData)
-                })
+              console.log('  表头（第1行）:', normalizedData[0] ? normalizedData[0].slice(0, 10) : '无')
+              if (normalizedData.length > 1) {
+                console.log('  第2行:', normalizedData[1].slice(0, 10))
               }
-            } catch (sheetError) {
-              console.warn(`提取sheet ${sheet.name} 失败:`, sheetError)
+              if (normalizedData.length > 2) {
+                console.log('  第3行:', normalizedData[2].slice(0, 10))
+              }
+              if (normalizedData.length > 3) {
+                console.log('  第4行:', normalizedData[3].slice(0, 10))
+              }
+              console.log('  总行数:', normalizedData.length)
+              
+              sheets.push({
+                name: sheet.name || `Sheet${idx + 1}`,
+                data: normalizedData  // 使用规范化后的数据
+              })
+            } else {
+              console.warn('  ⚠️ Sheet没有data字段或data不是数组')
             }
-          }
+          })
+          
+          console.log('\n========================================\n')
           
           if (sheets.length === 0) {
-            reject(new Error('所有表格数据提取失败'))
+            reject(new Error('没有找到有效的表格数据'))
             return
           }
           
@@ -3364,7 +3515,8 @@ export default {
       }
       
       let hasStudentData = false
-      let totalStudents = 0
+      // 使用Set来去重统计学生数量（基于学号）
+      const studentSet = new Set()
       
       // 检查每个sheet
       for (const sheet of sheets) {
@@ -3378,19 +3530,29 @@ export default {
           for (let i = 1; i < sheet.data.length; i++) {
             const row = sheet.data[i]
             
+            // 跳过空行
+            if (!row || row.length < 3) continue
+            
             // 检查基本信息
-            const hasInfo = row && row.length >= 3 && 
-                          (row[1] || row[2]) // 学号或姓名
-                          
+            const studentId = row[1]  // 学号
+            const studentName = row[2]  // 姓名
+            
+            // 如果学号和姓名都为空，跳过
+            if (!studentId && !studentName) continue
+            
             // 检查成绩数据
-            const hasScores = row && row.length > 3 && 
+            const hasScores = row.length > 3 && 
                             row.slice(3).some(score => 
                               score && !isNaN(Number(score)) && Number(score) > 0
                             )
             
-            if (hasInfo && hasScores) {
+            if (hasScores) {
               hasStudentData = true
-              totalStudents++
+              // 使用学号作为唯一标识，如果学号为空则使用姓名
+              const uniqueKey = studentId ? String(studentId).trim() : String(studentName).trim()
+              if (uniqueKey) {
+                studentSet.add(uniqueKey)
+              }
             }
           }
         }
@@ -3400,7 +3562,8 @@ export default {
         throw new Error('没有找到有效的学生成绩数据')
       }
       
-      console.log('数据验证通过，共发现', totalStudents, '名学生数据')
+      const totalStudents = studentSet.size
+      console.log('数据验证通过，共发现', totalStudents, '名不重复的学生')
       this.table.isDataValid = true
       this.table.lastValidCheck = new Date()
     },
@@ -4288,17 +4451,14 @@ export default {
       };
 
       // 2. 构建 courseTargetProportions
+      // 直接使用已经计算好的 weighted 值
       this.targetProportionsTable.forEach(row => {
-        const regular = row.regularSupported ? (row.regular || 0) : 0;
-        const lab = row.labSupported ? (row.lab || 0) : 0;
-        const finalExam = row.finalSupported ? (row.final || 0) : 0;
-        const total = regular + lab + finalExam;  // 输入占比之和，与 default_config.json 一致
         backendConfig.courseTargetProportions.push({
           courseTarget: row.target,
-          regularGrade: regular,
-          lab: lab,
-          finalExam: finalExam,
-          total: total
+          regularGrade: parseFloat(row.weightedRegular.toFixed(2)),
+          lab: parseFloat(row.weightedLab.toFixed(2)),
+          finalExam: parseFloat(row.weightedFinal.toFixed(2)),
+          total: parseFloat(row.weightedTotal.toFixed(2))
         });
       });
 
@@ -4376,7 +4536,11 @@ export default {
     getImageUrl(fileName) {
       const reportId = this.dataProcessing.reportId;
       if (!fileName || !reportId) return null;
-      return `/dev-api/luckysheet/result/${reportId}/${encodeURIComponent(fileName)}`;
+      // 添加时间戳避免浏览器缓存
+      const timestamp = Date.now();
+      const url = `/dev-api/luckysheet/result/${reportId}/${encodeURIComponent(fileName)}?t=${timestamp}`;
+      console.log('生成图片URL:', url);
+      return url;
     },
 
     // 图片加载错误处理

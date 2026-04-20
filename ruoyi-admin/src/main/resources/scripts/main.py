@@ -268,14 +268,30 @@ def read_all_csv(config):
 
 # 计算每个课程目标和考核方式的采分项满分值
 def calculate_full_scores(config):
+    """
+    计算每个课程目标在各考核方式中的满分值
+    
+    根据规范要求：
+    - courseTargetProportions[].regularGrade 是总成绩贡献值（已乘以考核方式占比）
+    - 例如：regularGrade=18 表示该课程目标从平时成绩获得总成绩的18%
+    - 如果平时成绩占总成绩30%，则该课程目标在平时成绩中的占比为：18/30*100 = 60%
+    - 因此该课程目标在平时成绩中的满分值为：regularTotalScore * 60%
+    
+    计算公式：
+    full_score = assessment_max_score * (contribution / assessment_grade_ratio)
+    其中：
+    - contribution: 课程目标在该考核方式的总成绩贡献值（如18）
+    - assessment_grade_ratio: 该考核方式占总成绩的百分比（如30）
+    - assessment_max_score: 该考核方式的卷面总分（如100）
+    """
     course_target_full_scores = {}
 
-    # 获取所有考核方式的满分值
+    # 获取所有考核方式的满分值（卷面总分）
     regular_max_score = config.get('regularTotalScore', 0)
     lab_max_score = config.get('labTotalScore', 0)
     final_max_score = config.get('finalTotalScore', 0)
 
-    # 获取考核方式在总成绩中的比例
+    # 获取考核方式在总成绩中的比例（%）
     regular_grade_ratio = config.get('regularGrade', 0)
     lab_grade_ratio = config.get('labGrade', 0)
     final_exam_ratio = config.get('finalExam', 0)
@@ -287,24 +303,26 @@ def calculate_full_scores(config):
         course_target_full_scores[target_name] = {}
 
         # 计算平时成绩的采分项满分值
+        # contribution = target['regularGrade'] 是该课程目标从平时获得的总成绩贡献值
+        # 例如：regularGrade=18, regular_grade_ratio=30 → 在平时中占比60% → 满分=100*0.6=60分
         if target.get('regularGrade', 0) > 0 and regular_grade_ratio > 0:
-            regular_ratio = target['regularGrade']
+            contribution = target['regularGrade']  # 总成绩贡献值
             course_target_full_scores[target_name]['平时成绩'] = (
-                regular_max_score * (regular_ratio / regular_grade_ratio)
+                regular_max_score * (contribution / regular_grade_ratio)
             )
 
         # 计算上机成绩的采分项满分值
         if target.get('lab', 0) > 0 and lab_grade_ratio > 0:
-            lab_ratio = target['lab']
+            contribution = target['lab']  # 总成绩贡献值
             course_target_full_scores[target_name]['上机成绩'] = (
-                lab_max_score * (lab_ratio / lab_grade_ratio)
+                lab_max_score * (contribution / lab_grade_ratio)
             )
 
         # 计算期末考试的采分项满分值
         if target.get('finalExam', 0) > 0 and final_exam_ratio > 0:
-            final_ratio = target['finalExam']
+            contribution = target['finalExam']  # 总成绩贡献值
             course_target_full_scores[target_name]['期末考试'] = (
-                final_max_score * (final_ratio / final_exam_ratio)
+                final_max_score * (contribution / final_exam_ratio)
             )
     
     return course_target_full_scores
@@ -415,6 +433,19 @@ def generate_split_score_table(config, df, full_scores):
         result_df['上机实验总成绩'] * config.get('labGrade', 0) + 
         result_df['期末考核总成绩'] * config.get('finalExam', 0)
     ) / 100
+    
+    # 调试日志：打印总成绩计算的详细信息
+    print("\n========== 总成绩计算调试信息 ==========")
+    print(f"regularGrade: {config.get('regularGrade', 0)}")
+    print(f"labGrade: {config.get('labGrade', 0)}")
+    print(f"finalExam: {config.get('finalExam', 0)}")
+    print(f"平时考核总成绩范围: {result_df['平时考核总成绩'].min():.2f} - {result_df['平时考核总成绩'].max():.2f}")
+    print(f"上机实验总成绩范围: {result_df['上机实验总成绩'].min():.2f} - {result_df['上机实验总成绩'].max():.2f}")
+    print(f"期末考核总成绩范围: {result_df['期末考核总成绩'].min():.2f} - {result_df['期末考核总成绩'].max():.2f}")
+    print(f"总成绩范围: {result_df['总成绩'].min():.2f} - {result_df['总成绩'].max():.2f}")
+    print(f"总成绩平均值: {result_df['总成绩'].mean():.2f}")
+    print(f"总成绩样本（前5个学生）: {result_df['总成绩'].head().tolist()}")
+    print("========================================\n")
 
     # 计算课程目标的个人达成度
     method_mapping = {
@@ -510,6 +541,18 @@ def generate_statistics(config, split_score_df, full_scores):
             '人数': count,
             '占比': (count / total_students) * 100 if total_students > 0 else 0
         }
+    
+    # 调试日志：打印成绩分布详情
+    print("\n========== 成绩分布调试信息 ==========")
+    print(f"总学生数: {total_students}")
+    print(f"总成绩列是否存在: {'总成绩' in split_score_df.columns}")
+    if '总成绩' in split_score_df.columns:
+        print(f"总成绩非零学生数: {split_score_df[split_score_df['总成绩'] > 0].shape[0]}")
+        print(f"总成绩为零学生数: {split_score_df[split_score_df['总成绩'] == 0].shape[0]}")
+    print("成绩分布详情:")
+    for grade, info in grade_counts.items():
+        print(f"  {grade}: {info['人数']}人 ({info['占比']:.2f}%)")
+    print("========================================\n")
 
     statistics['成绩分布'] = grade_counts
 

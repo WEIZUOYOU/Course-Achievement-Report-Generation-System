@@ -28,13 +28,30 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import org.apache.poi.xwpf.usermodel.ParagraphAlignment;
+import org.apache.poi.util.Units;
+import java.math.BigInteger;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.STTblWidth;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTblPr;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTblWidth;
 
 // Apache POI imports for Word document generation  
 import org.apache.poi.xwpf.usermodel.*;
-import org.apache.poi.util.Units;
+import org.apache.poi.xwpf.usermodel.IBodyElement;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.STMerge;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTBookmark;
 import java.text.SimpleDateFormat;
 import com.alibaba.fastjson2.JSONArray;
+
+// poi-tl imports for table rendering (still needed for RowRenderData and Pictures)
+import com.deepoove.poi.data.RowRenderData;
+import com.deepoove.poi.data.Rows;
+import com.deepoove.poi.data.TextRenderData;
+import com.deepoove.poi.data.ParagraphRenderData;
+import com.deepoove.poi.data.RenderData;
+import com.deepoove.poi.data.CellRenderData;
+import com.deepoove.poi.data.Pictures;
+import com.deepoove.poi.data.style.Style;
 
 @Controller
 @RequestMapping("/luckysheet")
@@ -609,6 +626,22 @@ public class LuckysheetController {
                 }
             }
             
+            // 调试日志：打印CSV文件的前几行
+            log.info("========== CSV文件内容调试 ==========");
+            log.info("文件名: {}", fileName);
+            log.info("Sheet名称: {}", sheetName);
+            if (!processedData.isEmpty()) {
+                log.info("表头: {}", processedData.get(0));
+                if (processedData.size() > 1) {
+                    log.info("第1行数据: {}", processedData.get(1));
+                }
+                if (processedData.size() > 2) {
+                    log.info("第2行数据: {}", processedData.get(2));
+                }
+                log.info("总行数: {}", processedData.size());
+            }
+            log.info("========================================\n");
+            
             csvFiles.add(fileName);
         }
         
@@ -646,8 +679,13 @@ public class LuckysheetController {
         // 处理表头（第一行）
         List<Object> headers = new ArrayList<>(data.get(0));
         
+        log.info("========== 列名映射调试信息 ==========");
+        log.info("Sheet名称: {}", sheetName);
+        log.info("原始表头: {}", headers);
+        
         // 根据sheet类型进行列名映射
         if (sheetName.contains("平时成绩")) {
+            log.info("识别为平时成绩表，开始列名映射");
             // 平时成绩表：查找可能的总分列名
             mapColumnName(headers, "平时总分", "平时成绩总分");
             mapColumnName(headers, "总分", "平时成绩总分");
@@ -655,6 +693,7 @@ public class LuckysheetController {
             mapColumnName(headers, "regular_total", "平时成绩总分");
             mapColumnName(headers, "regular_score", "平时成绩总分");
         } else if (sheetName.contains("上机成绩")) {
+            log.info("识别为上机成绩表，开始列名映射");
             // 上机成绩表：查找可能的总分列名
             mapColumnName(headers, "上机总分", "上机成绩总分");
             mapColumnName(headers, "实验总分", "上机成绩总分");
@@ -662,8 +701,13 @@ public class LuckysheetController {
             mapColumnName(headers, "上机成绩", "上机成绩总分");
             mapColumnName(headers, "lab_total", "上机成绩总分");
             mapColumnName(headers, "lab_score", "上机成绩总分");
+        } else {
+            log.info("未识别为平时或上机成绩表，跳过列名映射");
         }
         // 期末考试表通常列名比较固定，不需要特殊映射
+        
+        log.info("映射后表头: {}", headers);
+        log.info("========================================\n");
         
         processedData.add(headers);
         
@@ -671,8 +715,6 @@ public class LuckysheetController {
         for (int i = 1; i < data.size(); i++) {
             processedData.add(new ArrayList<>(data.get(i)));
         }
-        
-        log.info("Sheet '{}' 列名映射后的表头: {}", sheetName, headers);
         
         return processedData;
     }
@@ -907,313 +949,477 @@ public class LuckysheetController {
     }
     
     /**
-     * 生成Word报告 - 不包含图片的稳定版本
+     * 使用原生 POI 从头创建 Word 报告(不使用模板)
      */
     private String generateWordReport(String reportId, String configId) throws IOException {
-        String cleanedConfigId = cleanConfigId(configId);
-        String dataDir = uploadPath + "/data/" + cleanedConfigId + "/";
-        String reportFilePath = uploadPath + "/reports/report_" + reportId + ".docx";
-        
-        log.info("=== 开始生成Word报告（稳定版本） ===");
-        log.info("报告ID: {}", reportId);
-        log.info("配置ID: {}", configId);
-        log.info("清理后配置ID: {}", cleanedConfigId);
-        log.info("数据目录: {}", dataDir);
-        log.info("报告路径: {}", reportFilePath);
-        
-        // 确保报告目录存在
-        File reportsDir = new File(uploadPath + "/reports");
-        if (!reportsDir.exists()) {
-            boolean created = reportsDir.mkdirs();
-            log.info("创建报告目录: {}, 结果: {}", reportsDir.getAbsolutePath(), created);
+        String dataDir = uploadPath + "/data/" + configId + "/";
+        String outputPath = uploadPath + "/reports/report_" + reportId + ".docx";
+
+        File reportDir = new File(uploadPath + "/reports");
+        if (!reportDir.exists()) {
+            reportDir.mkdirs();
         }
-        
-        XWPFDocument document = null;
-        FileOutputStream out = null;
-        
-        try {
-            document = new XWPFDocument();
+
+        Map<String, Object> data = buildReportData(configId, dataDir);
+
+        // 创建新的 Word 文档
+        try (XWPFDocument doc = new XWPFDocument()) {
             
-            // 读取统计数据
-            File statisticsFile = new File(dataDir + "statistics_summary.json");
-            Map<String, Object> statistics = new HashMap<>();
-            if (statisticsFile.exists()) {
-                try {
-                    byte[] statisticsBytes = Files.readAllBytes(statisticsFile.toPath());
-                    String statisticsContent = new String(statisticsBytes, StandardCharsets.UTF_8);
-                    statistics = JSON.parseObject(statisticsContent, Map.class);
-                    log.info("✅ 成功读取统计数据文件");
-                } catch (Exception e) {
-                    log.error("读取统计数据失败", e);
-                }
-            } else {
-                log.warn("统计数据文件不存在: {}", statisticsFile.getAbsolutePath());
-            }
+            log.info("开始创建 Word 文档...");
             
-            // 读取达成度表格
-            File achievementFile = new File(dataDir + "overall_achievement_table.csv");
-            List<String[]> achievementData = new ArrayList<>();
-            if (achievementFile.exists()) {
-                try {
-                    List<String> lines = Files.readAllLines(achievementFile.toPath(), StandardCharsets.UTF_8);
-                    for (String line : lines) {
-                        achievementData.add(line.split(","));
-                    }
-                    log.info("✅ 成功读取达成度表格文件，共{}行", achievementData.size());
-                } catch (Exception e) {
-                    log.error("读取达成度表格失败", e);
-                }
-            } else {
-                log.warn("达成度表格文件不存在: {}", achievementFile.getAbsolutePath());
-            }
+            // 1. 添加标题
+            createTitle(doc, "课程目标达成评价报告");
             
-            // =================== 报告标题 ===================
-            XWPFParagraph titlePara = document.createParagraph();
-            titlePara.setAlignment(ParagraphAlignment.CENTER);
-            XWPFRun titleRun = titlePara.createRun();
-            titleRun.setText("《计算机组成原理与体系结构》课程目标达成评价报告");
-            titleRun.setBold(true);
-            titleRun.setFontSize(18);
-            titleRun.setFontFamily("宋体");
+            // 2. 添加课程基本信息
+            createCourseInfoSection(doc, data);
             
-            // =================== 课程基本信息表格 ===================
-            document.createParagraph().createRun().addBreak();
+            // 3. 添加课程教学目标表格
+            createTableSection(doc, "一、课程教学目标", (List<RowRenderData>) data.get("objectivesRows"));
             
-            String totalStudents = getStatValue(statistics, "学生总数", "51");
+            // 4. 添加考评方式占比表格
+            createTableSection(doc, "二、考评方式及权重", (List<RowRenderData>) data.get("evalRows"));
             
-            String[][] basicInfoData = {
-                {"课程名称", "计算机组成原理与体系结构", "课程编号", "CIE5B3S003", "课程学分", "3"},
-                {"课程性质", "必修", "开课年级", "2023级", "开课学期", "第3学期"},
-                {"负责教师", "系统管理员", "任课教师", "系统管理员", "", ""},
-                {"学生总数", totalStudents, "", "", "", ""}
-            };
+            // 5. 添加成绩统计信息
+            createGradeStatisticsSection(doc, data);
             
-            createDataTable(document, basicInfoData, true);
+            // 6. 添加成绩分布图表
+            addImageIfExists(doc, dataDir + "grade_distribution_chart.png", "图1 成绩分布图");
             
-            // =================== 一、课程教学目标 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "一、课程教学目标");
+            // 7. 添加课程目标达成度表格
+            createTableSection(doc, "三、课程目标达成情况", (List<RowRenderData>) data.get("achieveRows"));
             
-            String[][] objectiveData = {
-                {"毕业要求指标点", "课程目标简称", "课程目标描述", "支撑强度"},
-                {"1.3", "课程目标1", "理解计算机系统五大组成部件的有关基本概念", "H"},
-                {"2.3", "课程目标2", "能够有效分解模型机体系结构", "M"},
-                {"3.2", "课程目标3", "根据基本数字电路模块构建各种硬件模块", "L"},
-                {"4.1", "课程目标4", "采用软件仿真或硬件实现方法验证设计", "L"}
-            };
+            // 8. 添加柱状图
+            addImageIfExists(doc, dataDir + "achievement_bar_chart.png", "图2 课程目标达成度对比");
             
-            createDataTable(document, objectiveData, true);
-            
-            // =================== 二、考评方式占比 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "二、考评方式占比");
-            
-            String[][] evalData = {
-                {"毕业要求指标点", "课程目标", "课堂作业", "实验报告", "考试", "分值/权重"},
-                {"1.3", "课程目标1", "5", "0", "28", "33"},
-                {"2.3", "课程目标2", "0", "0", "23.1", "23.1"},
-                {"3.2", "课程目标3", "0", "5", "18.9", "23.9"},
-                {"4.1", "课程目标4", "0", "20", "0", "20"},
-                {"合计", "", "5", "25", "70", "100"}
-            };
-            
-            createDataTable(document, evalData, true);
-            
-            // =================== 三、课程总评成绩统计分析 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "三、课程总评成绩统计分析");
-            
-            String avgScore = getStatValue(statistics, "平均总成绩", "72.45");
-            String medianScore = getStatValue(statistics, "中位数", "74.20");
-            String stdDev = getStatValue(statistics, "标准差", "14.36");
-            String maxScore = getStatValue(statistics, "最高分", "94");
-            String minScore = getStatValue(statistics, "最低分", "24");
-            
-            String[][] statsData = {
-                {"平均值", "中位值", "标准差", "最高分", "最低分"},
-                {avgScore, medianScore, stdDev, maxScore, minScore}
-            };
-            
-            createDataTable(document, statsData, true);
-            
-            // 成绩分布表格
-            document.createParagraph().createRun().addBreak();
-            String[][] gradeData = {
-                {"达成区间", "人数", "占比"},
-                {"优秀(≥90)", "4", "7.41%"},
-                {"良好(80-90)", "11", "20.37%"},
-                {"中等(70-80)", "18", "33.33%"},
-                {"及格(60-70)", "10", "18.52%"},
-                {"不及格(<60)", "8", "14.81%"},
-                {"总人数", "51", "94.44%"}
-            };
-            
-            createDataTable(document, gradeData, true);
-            
-            // =================== 四、课程目标达成整体达成 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "四、课程目标达成整体达成");
-            
-            if (!achievementData.isEmpty()) {
-                String[][] achievementArray = achievementData.toArray(new String[0][]);
-                createDataTable(document, achievementArray, true);
-            } else {
-                // 使用默认数据
-                String[][] defaultAchievementData = {
-                    {"课程目标", "达成度（标准=0.60）"},
-                    {"课程目标1", "0.83"},
-                    {"课程目标2", "0.79"},
-                    {"课程目标3", "0.84"},
-                    {"课程目标4", "0.87"}
-                };
-                createDataTable(document, defaultAchievementData, true);
-            }
-            
-            // =================== 五、教学目标达成定量分析课程图谱 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "五、教学目标达成定量分析课程图谱");
-            
-            XWPFParagraph chartNote = document.createParagraph();
-            XWPFRun chartNoteRun = chartNote.createRun();
-            chartNoteRun.setText("相关统计图表已生成，请在系统数据目录中查看：");
-            chartNoteRun.setFontFamily("宋体");
-            
-            // 列出图表文件
-            File dataDirFile = new File(dataDir);
-            if (dataDirFile.exists() && dataDirFile.isDirectory()) {
-                File[] pngFiles = dataDirFile.listFiles((dir, name) -> name.endsWith(".png"));
-                if (pngFiles != null && pngFiles.length > 0) {
-                    for (File pngFile : pngFiles) {
-                        XWPFParagraph chartItem = document.createParagraph();
-                        XWPFRun chartItemRun = chartItem.createRun();
-                        chartItemRun.setText("• " + pngFile.getName() + " - " + getChartDescription(pngFile.getName()));
-                        chartItemRun.setFontFamily("宋体");
+            // 9. 添加散点图
+            List<Map<String, Object>> scatterCharts = (List<Map<String, Object>>) data.get("scatterCharts");
+            if (scatterCharts != null && !scatterCharts.isEmpty()) {
+                addSection(doc, "四、课程目标达成度分布");
+                for (Map<String, Object> chartItem : scatterCharts) {
+                    String chartPath = (String) chartItem.get("chartPath");
+                    if (chartPath != null && new File(chartPath).exists()) {
+                        String title = "图" + chartItem.get("index") + " 课程目标" + chartItem.get("targetNum") + "达成度分布";
+                        addImageFromFile(doc, chartPath, title);
+                        
+                        // 添加描述
+                        String desc = "达成度：" + chartItem.get("achievement") + "，参与人数：" + chartItem.get("totalStudents");
+                        addParagraph(doc, desc, "宋体", 11, false);
+                        addEmptyLine(doc);
                     }
                 }
             }
             
-            // =================== 六、课程目标达成分析 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "六、课程目标达成分析");
-            
-            String[][] analysisData = {
-                {"课程目标", "达成分析", "较往年分析"},
-                {"课程目标1", "达成度良好，极少数学生不达标", "无"},
-                {"课程目标2", "达成度良好，少数学生不达标", "无"},
-                {"课程目标3", "有较多同学不达标，需要采取措施进行加强", "无"},
-                {"课程目标4", "无不达标情况，掌握情况良好", "无"}
-            };
-            
-            createDataTable(document, analysisData, true);
-            
-            // =================== 七、持续改进措施 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "七、持续改进措施");
-            
-            String[][] improvementData = {
-                {"改进项目", "持续改进"},
-                {"课程目标1", "目前达成度符合预期，维持考试难度和教学内容"},
-                {"课程目标2", "目前达成度符合预期，维持考试难度和教学内容"},
-                {"课程目标3", "不达标人数偏多，需要适当降低考试难度"},
-                {"课程目标4", "达成度偏高，适当增强该部分的授课深度"},
-                {"其他", ""}
-            };
-            
-            createDataTable(document, improvementData, true);
-            
-            // =================== 八、课程教学质量评价 ===================
-            document.createParagraph().createRun().addBreak();
-            addSectionHeader(document, "八、课程教学质量评价");
-            
-            addSubHeader(document, "教学效果分析");
-            XWPFParagraph effectContent = document.createParagraph();
-            XWPFRun effectRun = effectContent.createRun();
-            effectRun.setText("教学效果总体良好，大部分同学可以达成所有的课程目标。");
-            effectRun.setFontFamily("宋体");
-            
-            document.createParagraph().createRun().addBreak();
-            addSubHeader(document, "教学改进措施");
-            
-            String[][] teachingData = {
-                {"序号", "改进项目", "是否改进", "改进建议"},
-                {"1", "是否调整课程及其对毕业要求指标点达成支撑关系?", "否", ""},
-                {"2", "是否调整课程教学内容？", "否", ""},
-                {"3", "是否调整课程学时与开课方式？", "是", "适当增加目标3的支撑课时"},
-                {"4", "是否调整课程教学方法与手段？", "否", ""},
-                {"5", "是否调整课程考核与评价方法？", "是", "目标3和目标4需要适当调整"},
-                {"6", "是否需要加强课程教学资源与平台建设？", "否", ""},
-                {"7", "专业其他改进意见", "", "无"}
-            };
-            
-            createDataTable(document, teachingData, true);
-            
-            // =================== 签名区域 ===================
-            document.createParagraph().createRun().addBreak();
-            document.createParagraph().createRun().addBreak();
-            
-            addSubHeader(document, "教研室意见");
-            document.createParagraph().createRun().addBreak();
-            document.createParagraph().createRun().addBreak();
-            
-            XWPFParagraph deptSignature = document.createParagraph();
-            XWPFRun deptSigRun = deptSignature.createRun();
-            deptSigRun.setText("负责人签字：________________    日期：________________");
-            deptSigRun.setFontFamily("宋体");
-            
-            document.createParagraph().createRun().addBreak();
-            addSubHeader(document, "学院意见");
-            document.createParagraph().createRun().addBreak();
-            document.createParagraph().createRun().addBreak();
-            
-            XWPFParagraph collegeSignature = document.createParagraph();
-            XWPFRun collegeSigRun = collegeSignature.createRun();
-            collegeSigRun.setText("负责人签字：________________    日期：________________");
-            collegeSigRun.setFontFamily("宋体");
+            // 10. 添加持续改进措施
+            createTableSection(doc, "五、持续改进措施", (List<RowRenderData>) data.get("improvementsRows"));
             
             // 保存文档
-            out = new FileOutputStream(reportFilePath);
-            document.write(out);
+            try (FileOutputStream out = new FileOutputStream(outputPath)) {
+                doc.write(out);
+            }
             
-            log.info("✅ Word报告生成成功: {}", reportFilePath);
-            return reportFilePath;
-            
+            log.info("Word 报告生成成功: {}", outputPath);
         } catch (Exception e) {
-            log.error("Word报告生成失败", e);
-            
-            // 降级：生成简单的文本文件
-            String txtPath = reportFilePath.replace(".docx", ".txt");
-            try (PrintWriter writer = new PrintWriter(new OutputStreamWriter(
-                    new FileOutputStream(txtPath), StandardCharsets.UTF_8))) {
-                writer.println("课程目标达成评价报告");
-                writer.println("========================");
-                writer.println("报告ID: " + reportId);
-                writer.println("配置ID: " + configId);
-                writer.println("生成时间: " + new Date());
-                writer.println("");
-                writer.println("注意：Word报告生成失败，已生成文本格式报告。");
-                writer.println("错误信息：" + e.getMessage());
-            }
-            log.warn("降级生成文本报告: {}", txtPath);
-            return txtPath;
-        } finally {
-            // 安全关闭资源
-            if (out != null) {
-                try {
-                    out.close();
-                } catch (IOException e) {
-                    log.error("关闭文件输出流失败", e);
+            log.error("生成 Word 报告失败", e);
+            throw new IOException("生成 Word 报告失败", e);
+        }
+
+        return outputPath;
+    }
+
+    private Map<String, Object> buildReportData(String configId, String dataDir) throws IOException {
+        Map<String, Object> data = new HashMap<>();
+
+        // ---------- 读取 exam_config.json ----------
+        JSONObject config = readConfigFromFile(dataDir + "exam_config.json");
+
+        // ---------- 读取 statistics_summary.json ----------
+        JSONObject stats = JSON.parseObject(new String(Files.readAllBytes(Paths.get(dataDir + "statistics_summary.json"))));
+
+        // ---------- 读取 overall_achievement_table.csv ----------
+        List<Map<String, Object>> achievements = new ArrayList<>();
+        Path csvPath = Paths.get(dataDir + "overall_achievement_table.csv");
+        if (Files.exists(csvPath)) {
+            try (BufferedReader reader = Files.newBufferedReader(csvPath, StandardCharsets.UTF_8)) {
+                String headerLine = reader.readLine();
+                if (headerLine == null) {
+                    log.warn("CSV文件为空: {}", csvPath);
+                } else {
+                    // 解析CSV表头，确定列索引
+                    String[] headers = headerLine.split(",");
+                    Map<String, Integer> columnIndexMap = new HashMap<>();
+                    for (int i = 0; i < headers.length; i++) {
+                        columnIndexMap.put(headers[i].trim(), i);
+                    }
+                    
+                    log.info("CSV表头: {}", String.join(", ", headers));
+                    log.info("列索引映射: {}", columnIndexMap);
+                    
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        String[] cols = line.split(",");
+                        if (cols.length >= 2) {
+                            Map<String, Object> row = new HashMap<>();
+                            
+                            // 使用列名映射来读取数据，而不是硬编码索引
+                            // 根据实际的 CSV 表头：课程目标,考试_额定值,考试_分值,考试_达成度,课堂作业_额定值,课堂作业_分值,课堂作业_达成度,实验报告_额定值,实验报告_分值,实验报告_达成度,达成度（标准= 0.6）
+                            row.put("courseTarget", getColumnValue(cols, columnIndexMap, "课程目标", 0));
+                            
+                            // 考试相关
+                            row.put("examFull", getColumnValue(cols, columnIndexMap, "考试_额定值", 1));
+                            row.put("examScore", getColumnValue(cols, columnIndexMap, "考试_分值", 2));
+                            row.put("examAchieve", getColumnValue(cols, columnIndexMap, "考试_达成度", 3));
+                            
+                            // 课堂作业相关
+                            row.put("regularFull", getColumnValue(cols, columnIndexMap, "课堂作业_额定值", 4));
+                            row.put("regularScore", getColumnValue(cols, columnIndexMap, "课堂作业_分值", 5));
+                            row.put("regularAchieve", getColumnValue(cols, columnIndexMap, "课堂作业_达成度", 6));
+                            
+                            // 实验报告相关
+                            row.put("labFull", getColumnValue(cols, columnIndexMap, "实验报告_额定值", 7));
+                            row.put("labScore", getColumnValue(cols, columnIndexMap, "实验报告_分值", 8));
+                            row.put("labAchieve", getColumnValue(cols, columnIndexMap, "实验报告_达成度", 9));
+                            
+                            // 关键：总达成度字段（注意括号和空格）
+                            row.put("totalAchieve", getColumnValue(cols, columnIndexMap, 
+                                new String[]{"达成度（标准= 0.6）", "达成度(标准=0.6)", "总达成度"}, 10));
+                            
+                            achievements.add(row);
+                        }
+                    }
+                    
+                    log.info("从 CSV 读取了 {} 条达成度数据", achievements.size());
                 }
             }
-            if (document != null) {
-                try {
-                    document.close();
-                } catch (IOException e) {
-                    log.error("关闭文档失败", e);
-                }
+        } else {
+            log.warn("CSV文件不存在: {}", csvPath);
+        }
+
+        // ---------- 课程基本信息 ----------
+        data.put("courseName", config.getString("courseName") != null ? config.getString("courseName") : "计算机组成原理与体系结构");
+        data.put("courseCode", config.getString("courseCode") != null ? config.getString("courseCode") : "CIE5B3S003");
+        data.put("courseCredit", config.getString("courseCredit") != null ? config.getString("courseCredit") : "3");
+        data.put("courseNature", config.getString("courseNature") != null ? config.getString("courseNature") : "必修");
+        data.put("grade", config.getString("grade") != null ? config.getString("grade") : "2023级");
+        data.put("semester", config.getString("semester") != null ? config.getString("semester") : "第3学期");
+        data.put("responsibleTeacher", config.getString("responsibleTeacher") != null ? config.getString("responsibleTeacher") : "系统管理员");
+        data.put("teacher", config.getString("teacher") != null ? config.getString("teacher") : "系统管理员");
+
+        int totalStudents = stats.getIntValue("学生总数");
+        data.put("totalStudents", totalStudents);
+
+        JSONArray courseTargets = config.getJSONArray("courseTargets");
+
+        // ========== 1. 课程教学目标表格 ==========
+        List<RowRenderData> objectivesRows = new ArrayList<>();
+        // 表头样式
+        Style headStyle1 = new Style();
+        headStyle1.setBold(true);
+        headStyle1.setFontFamily("宋体");
+        headStyle1.setFontSize(11);
+        objectivesRows.add(Rows.of(
+                new TextRenderData("毕业要求指标点", headStyle1),
+                new TextRenderData("课程目标简称", headStyle1),
+                new TextRenderData("课程目标描述", headStyle1)
+        ).create());
+        for (int i = 0; i < courseTargets.size(); i++) {
+            String target = courseTargets.getString(i);
+            objectivesRows.add(Rows.of(
+                    new TextRenderData((i + 1) + ".3"),
+                    new TextRenderData(target),
+                    new TextRenderData("课程目标描述")
+            ).create());
+        }
+        data.put("objectivesRows", objectivesRows);
+
+        // ========== 2. 考评方式占比表格 ==========
+        List<RowRenderData> evalRows = new ArrayList<>();
+        Style evalHeadStyle = new Style();
+        evalHeadStyle.setBold(true);
+        evalHeadStyle.setFontFamily("宋体");
+        evalHeadStyle.setFontSize(10);
+        evalRows.add(Rows.of(
+                new TextRenderData("毕业要求指标点", evalHeadStyle),
+                new TextRenderData("课程目标", evalHeadStyle),
+                new TextRenderData("课堂作业", evalHeadStyle),
+                new TextRenderData("实验报告", evalHeadStyle),
+                new TextRenderData("考试", evalHeadStyle),
+                new TextRenderData("分值/权重", evalHeadStyle)
+        ).create());
+        JSONArray proportions = config.getJSONArray("courseTargetProportions");
+        if (proportions == null || proportions.isEmpty()) {
+            proportions = config.getJSONArray("targets");
+        }
+        
+        log.info("========== 考评方式占比数据 ==========");
+        log.info("courseTargetProportions 数量: {}", proportions != null ? proportions.size() : 0);
+        
+        // 打印总权重配置
+        log.info("总权重配置 - regularGrade: {}, labGrade: {}, finalExam: {}",
+            config.getIntValue("regularGrade"),
+            config.getIntValue("labGrade"),
+            config.getIntValue("finalExam"));
+        
+        if (proportions != null) {
+            for (int i = 0; i < proportions.size(); i++) {
+                JSONObject prop = proportions.getJSONObject(i);
+                int regular = getIntValue(prop, 0, "regularGrade", "regular");
+                int lab = getIntValue(prop, 0, "lab", "labGrade");
+                int finalExam = getIntValue(prop, 0, "finalExam", "final");
+                int total = prop.getIntValue("total");
+                if (total == 0) total = regular + lab + finalExam;
+                
+                log.info("  [{}] courseTarget={}, regularGrade={}, lab={}, finalExam={}, total={}",
+                    i, prop.getString("courseTarget"), regular, lab, finalExam, total);
+                
+                evalRows.add(Rows.of(
+                        new TextRenderData((i + 1) + ".3"),
+                        new TextRenderData(prop.getString("courseTarget")),
+                        new TextRenderData(String.valueOf(regular)),
+                        new TextRenderData(String.valueOf(lab)),
+                        new TextRenderData(String.valueOf(finalExam)),
+                        new TextRenderData(String.valueOf(total))
+                ).create());
             }
         }
+        data.put("evalRows", evalRows);
+        log.info("evalRows 构建完成，共 {} 行", evalRows.size());
+
+        // ========== 3. 总成绩统计 ==========
+        // 根据实际的 statistics_summary.json 结构读取
+        JSONObject totalScoreStats = stats.getJSONObject("总成绩");
+        if (totalScoreStats != null) {
+            data.put("avgScore", totalScoreStats.getDouble("平均值"));
+            data.put("medianScore", totalScoreStats.getDouble("中位值"));  // 注意：是“中位值”不是“中位数”
+            data.put("stdDev", totalScoreStats.getDouble("标准差"));
+            data.put("maxScore", totalScoreStats.getDouble("最高分"));
+            data.put("minScore", totalScoreStats.getDouble("最低分"));
+            
+            log.info("总成绩统计 - 平均值: {}, 中位值: {}, 标准差: {}, 最高分: {}, 最低分: {}",
+                data.get("avgScore"), data.get("medianScore"), data.get("stdDev"),
+                data.get("maxScore"), data.get("minScore"));
+        } else {
+            log.warn("未找到'总成绩'节点，尝试从根级别读取");
+            // 兼容旧格式：直接在根级别
+            data.put("avgScore", stats.getDouble("平均值"));
+            data.put("medianScore", stats.getDouble("中位值"));
+            data.put("stdDev", stats.getDouble("标准差"));
+            data.put("maxScore", stats.getDouble("最高分"));
+            data.put("minScore", stats.getDouble("最低分"));
+        }
+
+        // ========== 4. 成绩分布表格 ==========
+        List<RowRenderData> gradeDistRows = new ArrayList<>();
+        Style gradeHeadStyle = new Style();
+        gradeHeadStyle.setBold(true);
+        gradeHeadStyle.setFontFamily("宋体");
+        gradeDistRows.add(Rows.of(
+                new TextRenderData("达成区间", gradeHeadStyle),
+                new TextRenderData("人数", gradeHeadStyle),
+                new TextRenderData("占比", gradeHeadStyle)
+        ).create());
+        JSONObject distribution = stats.getJSONObject("成绩分布");
+        if (distribution != null) {
+            String[] grades = {"优秀", "良好", "中等", "及格", "不及格"};
+            String[] ranges = {"优秀(≥90)", "良好(80-90)", "中等(70-80)", "及格(60-70)", "不及格(<60)"};
+            for (int i = 0; i < grades.length; i++) {
+                JSONObject gradeObj = distribution.getJSONObject(grades[i]);
+                if (gradeObj != null) {
+                    int count = gradeObj.getInteger("人数");
+                    double ratio = gradeObj.getDouble("占比");
+                    // 根据实际数据，占比是数值（如 100.0），需要格式化为百分比字符串
+                    String ratioStr = String.format("%.2f%%", ratio);
+                    
+                    gradeDistRows.add(Rows.of(
+                            new TextRenderData(ranges[i]),
+                            new TextRenderData(String.valueOf(count)),
+                            new TextRenderData(ratioStr)
+                    ).create());
+                }
+            }
+            log.info("成绩分布数据读取完成");
+        } else {
+            log.warn("未找到'成绩分布'节点");
+        }
+        data.put("gradeDistRows", gradeDistRows);
+
+        // ========== 5. 图片 ==========
+        File gradeChart = new File(dataDir + "grade_distribution_chart.png");
+        if (gradeChart.exists()) {
+            data.put("gradeDistChart", Pictures.ofLocal(gradeChart.getAbsolutePath()).size(500, 300).create());
+        }
+        File barChart = new File(dataDir + "achievement_bar_chart.png");
+        if (barChart.exists()) {
+            data.put("barChart", Pictures.ofLocal(barChart.getAbsolutePath()).size(500, 300).create());
+        }
+
+        // ========== 6. 散点图列表 ==========
+        List<Map<String, Object>> scatterCharts = new ArrayList<>();
+        File[] scatterFiles = new File(dataDir).listFiles((dir, name) -> name.endsWith("_achievement_scatter_chart.png"));
+        if (scatterFiles != null) {
+            int idx = 2;
+            for (File sf : scatterFiles) {
+                String name = sf.getName();
+                String targetNum = name.replaceAll("\\D", "");
+                Map<String, Object> chartItem = new HashMap<>();
+                chartItem.put("chart", Pictures.ofLocal(sf.getAbsolutePath()).size(500, 300).create());
+                chartItem.put("chartPath", sf.getAbsolutePath()); // 存储图片路径
+                chartItem.put("index", idx++);
+                chartItem.put("targetNum", targetNum);
+                
+                // 从达成度数据中查找对应的课程目标
+                String achievement = "";
+                for (Map<String, Object> ach : achievements) {
+                    String courseTarget = ach.getOrDefault("courseTarget", "").toString();
+                    // 支持多种匹配方式
+                    if (courseTarget.equals("课程目标" + targetNum) ||
+                        courseTarget.equals("目标" + targetNum) ||
+                        courseTarget.contains(targetNum)) {
+                        // 优先使用 totalAchieve 字段
+                        Object achieveValue = ach.get("totalAchieve");
+                        if (achieveValue != null && !achieveValue.toString().isEmpty()) {
+                            achievement = achieveValue.toString();
+                        }
+                        break;
+                    }
+                }
+                chartItem.put("achievement", achievement.isEmpty() ? "未找到" : achievement);
+                chartItem.put("totalStudents", totalStudents);
+                scatterCharts.add(chartItem);
+            }
+        }
+        data.put("scatterCharts", scatterCharts);
+
+        // ========== 7. 课程目标达成表格 ==========
+        List<RowRenderData> achieveRows = new ArrayList<>();
+        Style achieveHeadStyle = new Style();
+        achieveHeadStyle.setBold(true);
+        achieveHeadStyle.setFontSize(9);
+        achieveHeadStyle.setFontFamily("宋体");
+        achieveRows.add(Rows.of(
+                new TextRenderData("课程目标", achieveHeadStyle),
+                new TextRenderData("额定值", achieveHeadStyle),
+                new TextRenderData("分值", achieveHeadStyle),
+                new TextRenderData("达成度", achieveHeadStyle),
+                new TextRenderData("额定值", achieveHeadStyle),
+                new TextRenderData("分值", achieveHeadStyle),
+                new TextRenderData("达成度", achieveHeadStyle),
+                new TextRenderData("额定值", achieveHeadStyle),
+                new TextRenderData("分值", achieveHeadStyle),
+                new TextRenderData("达成度", achieveHeadStyle),
+                new TextRenderData("达成度(标准=0.6)", achieveHeadStyle)
+        ).create());
+        for (Map<String, Object> ach : achievements) {
+            achieveRows.add(Rows.of(
+                    new TextRenderData(ach.getOrDefault("courseTarget", "").toString()),
+                    new TextRenderData(ach.getOrDefault("examFull", "").toString()),
+                    new TextRenderData(ach.getOrDefault("examScore", "").toString()),
+                    new TextRenderData(ach.getOrDefault("examAchieve", "").toString()),
+                    new TextRenderData(ach.getOrDefault("regularFull", "").toString()),
+                    new TextRenderData(ach.getOrDefault("regularScore", "").toString()),
+                    new TextRenderData(ach.getOrDefault("regularAchieve", "").toString()),
+                    new TextRenderData(ach.getOrDefault("labFull", "").toString()),
+                    new TextRenderData(ach.getOrDefault("labScore", "").toString()),
+                    new TextRenderData(ach.getOrDefault("labAchieve", "").toString()),
+                    new TextRenderData(ach.getOrDefault("totalAchieve", "").toString())
+            ).create());
+        }
+        data.put("achieveRows", achieveRows);
+
+        // ========== 8. 课程目标达成分析表格 ==========
+        List<RowRenderData> analysisRows = new ArrayList<>();
+        Style analysisHeadStyle = new Style();
+        analysisHeadStyle.setBold(true);
+        analysisHeadStyle.setFontFamily("宋体");
+        analysisRows.add(Rows.of(
+                new TextRenderData("课程目标", analysisHeadStyle),
+                new TextRenderData("达成分析", analysisHeadStyle),
+                new TextRenderData("较往年分析", analysisHeadStyle)
+        ).create());
+        for (int i = 0; i < courseTargets.size(); i++) {
+            String targetName = courseTargets.getString(i);
+            String achieveValue = "";
+            for (Map<String, Object> ach : achievements) {
+                if (ach.get("courseTarget").equals(targetName)) {
+                    achieveValue = ach.get("totalAchieve").toString();
+                    break;
+                }
+            }
+            analysisRows.add(Rows.of(
+                    new TextRenderData(targetName),
+                    new TextRenderData("达成度：" + achieveValue),
+                    new TextRenderData("无")
+            ).create());
+        }
+        data.put("analysisRows", analysisRows);
+
+        // ========== 9. 持续改进措施表格 ==========
+        List<RowRenderData> improvementsRows = new ArrayList<>();
+        Style impHeadStyle = new Style();
+        impHeadStyle.setBold(true);
+        impHeadStyle.setFontFamily("宋体");
+        improvementsRows.add(Rows.of(
+                new TextRenderData("改进项目", impHeadStyle),
+                new TextRenderData("持续改进", impHeadStyle)
+        ).create());
+        for (int i = 0; i < courseTargets.size(); i++) {
+            improvementsRows.add(Rows.of(
+                    new TextRenderData(courseTargets.getString(i)),
+                    new TextRenderData("")
+            ).create());
+        }
+        improvementsRows.add(Rows.of(
+                new TextRenderData("其他"),
+                new TextRenderData("")
+        ).create());
+        data.put("improvementsRows", improvementsRows);
+
+        // ========== 10. 教学效果分析 ==========
+        data.put("teachingEffect", "教学效果总体良好，大部分同学可以达成所有的课程目标。");
+
+        // ========== 11. 教学改进措施表格 ==========
+        List<RowRenderData> teachingRows = new ArrayList<>();
+        Style teachHeadStyle = new Style();
+        teachHeadStyle.setBold(true);
+        teachHeadStyle.setFontFamily("宋体");
+        teachingRows.add(Rows.of(
+                new TextRenderData("序号", teachHeadStyle),
+                new TextRenderData("改进项目", teachHeadStyle),
+                new TextRenderData("是否改进", teachHeadStyle),
+                new TextRenderData("改进建议", teachHeadStyle)
+        ).create());
+        List<Map<String, Object>> measures = Arrays.asList(
+                Map.of("index", "1", "project", "是否调整课程及其对毕业要求指标点达成支撑关系?", "isImproved", "否", "suggestion", ""),
+                Map.of("index", "2", "project", "是否调整课程教学内容？", "isImproved", "否", "suggestion", ""),
+                Map.of("index", "3", "project", "是否调整课程学时与开课方式？", "isImproved", "是", "suggestion", "适当增加目标3的支撑课时"),
+                Map.of("index", "4", "project", "是否调整课程教学方法与手段？", "isImproved", "否", "suggestion", ""),
+                Map.of("index", "5", "project", "是否调整课程考核与评价方法？", "isImproved", "是", "suggestion", "目标3和目标4需要适当调整"),
+                Map.of("index", "6", "project", "是否需要加强课程教学资源与平台建设？", "isImproved", "否", "suggestion", ""),
+                Map.of("index", "7", "project", "专业其他改进意见", "isImproved", "", "suggestion", "无")
+        );
+        for (Map<String, Object> m : measures) {
+            teachingRows.add(Rows.of(
+                    new TextRenderData(m.get("index").toString()),
+                    new TextRenderData(m.get("project").toString()),
+                    new TextRenderData(m.get("isImproved").toString()),
+                    new TextRenderData(m.get("suggestion").toString())
+            ).create());
+        }
+        data.put("teachingRows", teachingRows);
+
+        return data;
     }
-    
+
+    /**
+     * 辅助方法：从 JSONObject 中按优先级获取 int 值
+     */
+    private int getIntValue(JSONObject obj, int defaultValue, String... keys) {
+        for (String key : keys) {
+            Integer val = obj.getInteger(key);
+            if (val != null) return val;
+        }
+        return defaultValue;
+    }
+
     /**
      * 添加章节标题
      */
@@ -1662,122 +1868,6 @@ public class LuckysheetController {
     }
 
     /**
-     * 通过标准输入流传递数据执行Python脚本（流式执行）
-     * @param pythonPath Python可执行文件路径
-     * @param scriptPath Python脚本相对路径
-     * @param workingDir 工作目录
-     * @param inputData 通过stdin传递给Python的JSON字符串
-     * @param timeoutSeconds 超时秒数
-     * @param env 环境变量（可空）
-     * @return Python脚本stdout输出的字符串
-     */
-    private String executePythonScriptWithStream(String pythonPath, String scriptPath,
-                                                String workingDir, String inputData,
-                                                int timeoutSeconds, Map<String, String> env) {
-        StringBuilder output = new StringBuilder();
-        Process process = null;
-        
-        try {
-            // 构建Python脚本的完整路径（相对于项目根目录或classpath）
-            String fullScriptPath = scriptPath;
-            if (!scriptPath.startsWith("/") && !scriptPath.contains(":")) {
-                // 如果不是绝对路径，尝试从当前工作目录定位
-                File scriptFile = new File(scriptPath);
-                if (!scriptFile.exists()) {
-                    // 尝试从classpath加载（例如 resources/scripts/main.py）
-                    Resource resource = new ClassPathResource(scriptPath);
-                    if (resource.exists()) {
-                        fullScriptPath = resource.getFile().getAbsolutePath();
-                    }
-                }
-            }
-            
-            ProcessBuilder pb = new ProcessBuilder(pythonPath, fullScriptPath);
-            
-            // 设置工作目录
-            if (workingDir != null && !workingDir.isEmpty()) {
-                File workDirFile = new File(workingDir);
-                if (!workDirFile.exists()) {
-                    workDirFile.mkdirs();
-                }
-                pb.directory(workDirFile);
-            }
-            
-            // 设置环境变量
-            if (env != null) {
-                pb.environment().putAll(env);
-            }
-            
-            // 启动进程
-            process = pb.start();
-            
-            // 通过标准输入流传递数据（使用UTF-8编码）
-            try (BufferedWriter writer = new BufferedWriter(
-                    new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8))) {
-                writer.write(inputData);
-                writer.flush();
-            }
-            
-            // 读取标准输出
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
-                }
-            }
-            
-            // 读取错误输出（用于调试）
-            StringBuilder errorOutput = new StringBuilder();
-            try (BufferedReader errorReader = new BufferedReader(
-                    new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = errorReader.readLine()) != null) {
-                    errorOutput.append(line).append("\n");
-                }
-            }
-            
-            // 等待进程结束并检查超时
-            long startTime = System.currentTimeMillis();
-            long timeoutMs = timeoutSeconds * 1000L;
-            
-            while (true) {
-                try {
-                    int exitCode = process.exitValue(); // 如果进程未结束会抛出异常
-                    if (exitCode != 0) {
-                        log.error("Python脚本执行失败，退出码: {}", exitCode);
-                        log.error("Python错误输出: {}", errorOutput.toString());
-                        throw new RuntimeException("Python脚本执行失败，退出码: " + exitCode + "\n错误信息: " + errorOutput.toString());
-                    }
-                    break;
-                } catch (IllegalThreadStateException e) {
-                    // 进程还在运行
-                    if (System.currentTimeMillis() - startTime > timeoutMs) {
-                        process.destroyForcibly();
-                        throw new RuntimeException("Python脚本执行超时 (" + timeoutSeconds + "秒)");
-                    }
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("执行被中断");
-                    }
-                }
-            }
-            
-            return output.toString();
-            
-        } catch (Exception e) {
-            log.error("执行Python脚本失败", e);
-            throw new RuntimeException("执行Python脚本失败: " + e.getMessage(), e);
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
-        }
-    }
-
-    /**
      * 解析Python脚本返回的JSON结果
      * @param pythonOutput Python脚本stdout输出的字符串
      * @return 解析后的Map对象
@@ -1800,5 +1890,927 @@ public class LuckysheetController {
             errorResult.put("message", "Python脚本返回格式异常: " + e.getMessage());
             return errorResult;
         }
-}
+    }
+    
+    /**
+     * 替换文档中的所有文本占位符 {{variable}}
+     */
+    private void replaceTextPlaceholders(XWPFDocument doc, Map<String, Object> data) {
+        // 遍历所有段落
+        for (XWPFParagraph paragraph : doc.getParagraphs()) {
+            replaceInParagraph(paragraph, data);
+        }
+        
+        // 遍历所有表格中的单元格
+        for (XWPFTable table : doc.getTables()) {
+            for (XWPFTableRow row : table.getRows()) {
+                for (XWPFTableCell cell : row.getTableCells()) {
+                    for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                        replaceInParagraph(paragraph, data);
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * 在段落中替换占位符
+     */
+    private void replaceInParagraph(XWPFParagraph paragraph, Map<String, Object> data) {
+        List<XWPFRun> runs = paragraph.getRuns();
+        if (runs == null || runs.isEmpty()) return;
+        
+        // 合并所有run的文本
+        StringBuilder fullText = new StringBuilder();
+        for (XWPFRun run : runs) {
+            String text = run.getText(0);
+            if (text != null) fullText.append(text);
+        }
+        
+        String mergedText = fullText.toString();
+        if (!mergedText.contains("{{")) return;
+        
+        // 替换所有占位符
+        boolean hasReplacement = false;
+        for (Map.Entry<String, Object> entry : data.entrySet()) {
+            String placeholder = "{{" + entry.getKey() + "}}";
+            if (mergedText.contains(placeholder)) {
+                String value = entry.getValue() != null ? entry.getValue().toString() : "";
+                mergedText = mergedText.replace(placeholder, value);
+                hasReplacement = true;
+            }
+        }
+        
+        // 如果有替换，更新段落
+        if (hasReplacement) {
+            // 保存第一个run的样式
+            XWPFRun firstRun = runs.get(0);
+            String fontFamily = firstRun.getFontFamily();
+            int fontSize = firstRun.getFontSize() > 0 ? firstRun.getFontSize() : 12;
+            boolean isBold = firstRun.isBold();
+            
+            // 清除所有原有的run
+            for (int i = runs.size() - 1; i >= 0; i--) {
+                paragraph.removeRun(i);
+            }
+            
+            // 创建新的run
+            XWPFRun newRun = paragraph.createRun();
+            newRun.setText(mergedText);
+            newRun.setFontFamily(fontFamily);
+            newRun.setFontSize(fontSize);
+            newRun.setBold(isBold);
+        }
+    }
+
+    private JSONObject readConfigFromFile(String filePath) throws IOException {
+        String content = new String(Files.readAllBytes(Paths.get(filePath)), StandardCharsets.UTF_8);
+        return JSON.parseObject(content);
+    }
+
+    /**
+     * 修复 Word 模板中因 XML 碎片化导致的标签拆分问题。
+     * 将每个单元格内的所有文本运行合并为单个运行，确保 poi-tl 标签完整。
+     * 
+     * @param inputStream 原始模板输入流
+     * @param outputStream 修复后的输出流
+     */
+    private void repairTemplate(InputStream inputStream, OutputStream outputStream) throws IOException {
+        try (XWPFDocument doc = new XWPFDocument(inputStream)) {
+            // 1. 处理所有段落（包括页眉、页脚、文本框等）
+            for (XWPFParagraph para : doc.getParagraphs()) {
+                mergeRunsIfNeeded(para);
+            }
+            
+            // 2. 处理所有表格中的段落
+            for (XWPFTable table : doc.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    for (XWPFTableCell cell : row.getTableCells()) {
+                        for (XWPFParagraph para : cell.getParagraphs()) {
+                            mergeRunsIfNeeded(para);
+                        }
+                    }
+                }
+            }
+            
+            // 3. 处理页眉中的段落（如果有）
+            for (XWPFHeader header : doc.getHeaderList()) {
+                for (XWPFParagraph para : header.getParagraphs()) {
+                    mergeRunsIfNeeded(para);
+                }
+            }
+            
+            // 4. 处理页脚中的段落（如果有）
+            for (XWPFFooter footer : doc.getFooterList()) {
+                for (XWPFParagraph para : footer.getParagraphs()) {
+                    mergeRunsIfNeeded(para);
+                }
+            }
+            
+            doc.write(outputStream);
+        }
+    }
+
+    private void mergeRunsIfNeeded(XWPFParagraph para) {
+        List<XWPFRun> runs = para.getRuns();
+        if (runs == null || runs.isEmpty()) {
+            return;
+        }
+        
+        // 合并所有 run 的文本
+        StringBuilder fullText = new StringBuilder();
+        for (XWPFRun run : runs) {
+            String text = run.getText(0);
+            if (text != null) {
+                fullText.append(text);
+            }
+        }
+        String merged = fullText.toString();
+        
+        // 如果段落中包含 poi-tl 标签，则强制重建为单一 run
+        if (merged.contains("{{#") || merged.contains("{{/") || merged.contains("{{+") || merged.contains("{{-")) {
+            // 删除原有所有 runs
+            for (int i = runs.size() - 1; i >= 0; i--) {
+                para.removeRun(i);
+            }
+            // 创建一个新 run，写入完整文本
+            XWPFRun newRun = para.createRun();
+            newRun.setText(merged);
+        }
+    }
+    
+
+    
+    /**
+     * 替换表格占位符为实际的表格
+     */
+    private void replaceTablePlaceholders(XWPFDocument doc, Map<String, Object> data) throws IOException {
+        // 先收集需要处理的段落和书签信息,避免在遍历时修改文档结构
+        List<Map<String, Object>> tablesToProcess = new ArrayList<>();
+        
+        // 遍历文档中的所有段落，查找包含书签的段落
+        List<XWPFParagraph> paragraphs = doc.getParagraphs();
+        log.info("文档包含 {} 个段落", paragraphs.size());
+        for (XWPFParagraph para : paragraphs) {
+            // 检查段落是否包含书签
+            if (para == null) {
+                log.warn("段落为空，跳过");
+                continue;
+            }
+            
+            List<CTBookmark> bookmarks = para.getCTP().getBookmarkStartList();
+            if (bookmarks == null) {
+                log.warn("书签列表为空，跳过");
+                continue;
+            }
+            
+            log.info("段落包含 {} 个书签", bookmarks.size());
+            for (CTBookmark bookmark : bookmarks) {
+                if (bookmark == null) {
+                    log.warn("书签为空，跳过");
+                    continue;
+                }
+                
+                String bookmarkName = bookmark.getName();
+                if (bookmarkName == null) {
+                    log.warn("书签名称为空，跳过");
+                    continue;
+                }
+                
+                log.info("找到书签: {}", bookmarkName);
+                
+                // 收集需要处理的表格信息
+                Map<String, Object> tableInfo = new HashMap<>();
+                tableInfo.put("paragraph", para);
+                tableInfo.put("bookmarkName", bookmarkName);
+                
+                // 处理课程教学目标表格
+                if ("OBJECTIVES_TABLE".equals(bookmarkName)) {
+                    log.info("处理 OBJECTIVES_TABLE 书签");
+                    tableInfo.put("rows", data.get("objectivesRows"));
+                    tablesToProcess.add(tableInfo);
+                }
+                // 处理考评方式占比表格
+                else if ("EVALUATION_METHODS_TABLE".equals(bookmarkName)) {
+                    log.info("处理 EVALUATION_METHODS_TABLE 书签");
+                    tableInfo.put("rows", data.get("evalRows"));
+                    tablesToProcess.add(tableInfo);
+                }
+                // 处理成绩分布表格
+                else if ("GRADE_DISTRIBUTION_TABLE".equals(bookmarkName)) {
+                    log.info("处理 GRADE_DISTRIBUTION_TABLE 书签");
+                    tableInfo.put("rows", data.get("gradeDistRows"));
+                    tablesToProcess.add(tableInfo);
+                }
+                // 处理课程目标达成表格
+                else if ("ACHIEVEMENTS_TABLE".equals(bookmarkName)) {
+                    log.info("处理 ACHIEVEMENTS_TABLE 书签");
+                    tableInfo.put("rows", data.get("achieveRows"));
+                    tablesToProcess.add(tableInfo);
+                }
+                // 处理课程目标达成分析表格
+                else if ("ANALYSIS_TABLE".equals(bookmarkName)) {
+                    log.info("处理 ANALYSIS_TABLE 书签");
+                    tableInfo.put("rows", data.get("analysisRows"));
+                    tablesToProcess.add(tableInfo);
+                }
+                // 处理持续改进措施表格
+                else if ("IMPROVEMENTS_TABLE".equals(bookmarkName)) {
+                    log.info("处理 IMPROVEMENTS_TABLE 书签");
+                    tableInfo.put("rows", data.get("improvementsRows"));
+                    tablesToProcess.add(tableInfo);
+                }
+                // 处理教学改进措施表格
+                else if ("TEACHING_MEASURES_TABLE".equals(bookmarkName)) {
+                    log.info("处理 TEACHING_MEASURES_TABLE 书签");
+                    tableInfo.put("rows", data.get("teachingRows"));
+                    tablesToProcess.add(tableInfo);
+                }
+            }
+        }
+        
+        // 现在处理收集到的表格,避免并发修改异常
+        for (Map<String, Object> tableInfo : tablesToProcess) {
+            XWPFParagraph para = (XWPFParagraph) tableInfo.get("paragraph");
+            List<RowRenderData> rows = (List<RowRenderData>) tableInfo.get("rows");
+            insertTableAtParagraph(doc, para, rows);
+        }
+        
+        log.info("表格占位符替换完成");
+    }
+    
+    /**
+     * 插入表格到文档 - 美化版
+     * @param doc Word文档
+     * @param rows 表格数据行
+     */
+    private void insertTable(XWPFDocument doc, List<RowRenderData> rows) throws IOException {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        
+        try {
+            // 创建表格
+            XWPFTable table = doc.createTable(rows.size(), rows.get(0).getCells().size());
+            
+            // 设置表格宽度
+            CTTblPr tblPr = table.getCTTbl().addNewTblPr();
+            CTTblWidth tblWidth = tblPr.addNewTblW();
+            tblWidth.setW(BigInteger.valueOf(9072)); // 100% width
+            tblWidth.setType(STTblWidth.DXA);
+            
+            // 填充表格数据
+            for (int i = 0; i < rows.size(); i++) {
+                RowRenderData rowData = rows.get(i);
+                List<CellRenderData> cells = rowData.getCells();
+                
+                for (int j = 0; j < cells.size(); j++) {
+                    CellRenderData cellData = cells.get(j);
+                    XWPFTableCell cell = table.getRow(i).getCell(j);
+                    
+                    // 清空单元格
+                    for (int k = cell.getParagraphs().size() - 1; k >= 0; k--) {
+                        cell.removeParagraph(k);
+                    }
+                    
+                    // 添加新段落
+                    XWPFParagraph para = cell.addParagraph();
+                    para.setAlignment(ParagraphAlignment.CENTER);
+                    XWPFRun run = para.createRun();
+                    
+                    // 获取单元格文本
+                    String cellText = "";
+                    if (cellData != null) {
+                        List<ParagraphRenderData> paragraphs = cellData.getParagraphs();
+                        if (paragraphs != null && !paragraphs.isEmpty()) {
+                            ParagraphRenderData pData = paragraphs.get(0);
+                            List<RenderData> contents = pData.getContents();
+                            if (contents != null && !contents.isEmpty()) {
+                                RenderData rData = contents.get(0);
+                                if (rData instanceof TextRenderData) {
+                                    cellText = ((TextRenderData) rData).getText();
+                                }
+                            }
+                        }
+                    }
+                    
+                    run.setText(cellText);
+                    run.setFontFamily("宋体");
+                    run.setFontSize(10);
+                    
+                    // 第一行作为表头，使用不同样式
+                    if (i == 0) {
+                        run.setBold(true);
+                        run.setColor("FFFFFF"); // 白色文字
+                        cell.setColor("4F81BD"); // 蓝色背景
+                    } else {
+                        run.setColor("000000"); // 黑色文字
+                    }
+                    
+                    // 设置垂直对齐
+                    cell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.CENTER);
+                }
+            }
+            
+            // 添加空行
+            addEmptyLine(doc);
+            
+        } catch (Exception e) {
+            log.error("插入表格失败", e);
+        }
+    }
+    
+    /**
+     * 替换散点图占位符为实际的散点图
+     */
+    private void replaceScatterChartsPlaceholder(XWPFDocument doc, List<Map<String, Object>> scatterCharts) throws IOException {
+        if (scatterCharts == null || scatterCharts.isEmpty()) {
+            log.info("散点图列表为空，跳过处理");
+            return;
+        }
+        
+        // 先收集需要处理的段落和书签信息,避免在遍历时修改文档结构
+        List<XWPFParagraph> paragraphsToProcess = new ArrayList<>();
+        
+        // 遍历文档中的所有段落，查找包含书签的段落
+        List<XWPFParagraph> paragraphs = doc.getParagraphs();
+        log.info("文档包含 {} 个段落", paragraphs.size());
+        
+        for (XWPFParagraph para : paragraphs) {
+            // 检查段落是否包含书签
+            if (para == null) {
+                log.warn("段落为空，跳过");
+                continue;
+            }
+            
+            List<CTBookmark> bookmarks = para.getCTP().getBookmarkStartList();
+            if (bookmarks == null) {
+                log.warn("书签列表为空，跳过");
+                continue;
+            }
+            
+            log.info("段落包含 {} 个书签", bookmarks.size());
+            for (CTBookmark bookmark : bookmarks) {
+                if (bookmark == null) {
+                    log.warn("书签为空，跳过");
+                    continue;
+                }
+                
+                String bookmarkName = bookmark.getName();
+                if (bookmarkName == null) {
+                    log.warn("书签名称为空，跳过");
+                    continue;
+                }
+                
+                log.info("找到书签: {}", bookmarkName);
+                
+                // 处理散点图占位符
+                if ("SCATTER_CHARTS_PLACEHOLDER".equals(bookmarkName)) {
+                    log.info("处理 SCATTER_CHARTS_PLACEHOLDER 书签");
+                    paragraphsToProcess.add(para);
+                    break;
+                }
+            }
+        }
+        
+        // 现在处理收集到的段落,避免并发修改异常
+        for (XWPFParagraph para : paragraphsToProcess) {
+            insertScatterChartsAtParagraph(doc, para, scatterCharts);
+        }
+        
+        log.info("散点图占位符替换完成，插入了 {} 个散点图", scatterCharts.size());
+    }
+    
+    /**
+     * 在段落位置插入表格
+     * @param doc Word文档
+     * @param para 段落
+     * @param rows 表格数据行
+     */
+    private void insertTableAtParagraph(XWPFDocument doc, XWPFParagraph para, List<RowRenderData> rows) throws IOException {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        
+        try {
+            if (para != null) {
+                // 删除段落
+                int paraIndex = doc.getBodyElements().indexOf(para);
+                doc.removeBodyElement(paraIndex);
+                
+                // 在相同位置创建表格
+                XWPFTable table = doc.createTable(rows.size(), rows.get(0).getCells().size());
+                
+                // 填充表格数据
+                for (int i = 0; i < rows.size(); i++) {
+                    RowRenderData rowData = rows.get(i);
+                    List<CellRenderData> cells = rowData.getCells();
+                    
+                    for (int j = 0; j < cells.size(); j++) {
+                        CellRenderData cellData = cells.get(j);
+                        XWPFTableCell cell = table.getRow(i).getCell(j);
+                        
+                        // 清空单元格
+                        for (int k = cell.getParagraphs().size() - 1; k >= 0; k--) {
+                            cell.removeParagraph(k);
+                        }
+                        
+                        // 添加新段落
+                        XWPFParagraph cellPara = cell.addParagraph();
+                        XWPFRun run = cellPara.createRun();
+                        
+                        // 获取单元格文本
+                        String cellText = "";
+                        if (cellData != null) {
+                            List<ParagraphRenderData> cellParagraphs = cellData.getParagraphs();
+                            if (cellParagraphs != null && !cellParagraphs.isEmpty()) {
+                                ParagraphRenderData pData = cellParagraphs.get(0);
+                                List<RenderData> contents = pData.getContents();
+                                if (contents != null && !contents.isEmpty()) {
+                                    RenderData rData = contents.get(0);
+                                    if (rData instanceof TextRenderData) {
+                                        cellText = ((TextRenderData) rData).getText();
+                                    }
+                                }
+                            }
+                        }
+                        
+                        run.setText(cellText);
+                        run.setFontFamily("微软雅黑");
+                        run.setFontSize(11);
+                    }
+                }
+                
+                // 设置表格样式
+                CTTblPr tblPr = table.getCTTbl().addNewTblPr();
+                CTTblWidth tblWidth = tblPr.addNewTblW();
+                tblWidth.setW(BigInteger.valueOf(9072)); // 100% width
+                tblWidth.setType(STTblWidth.DXA);
+                
+                // 在表格后添加空行
+                doc.createParagraph().createRun().addBreak();
+            }
+            
+        } catch (Exception e) {
+            log.error("插入表格失败", e);
+        }
+    }
+    
+    /**
+     * 插入散点图到文档
+     * @param doc Word文档
+     * @param para 段落
+     * @param scatterCharts 散点图数据列表
+     */
+    private void insertScatterChartsAtParagraph(XWPFDocument doc, XWPFParagraph para, List<Map<String, Object>> scatterCharts) throws IOException {
+        try {
+            log.info("开始插入散点图，共 {} 个", scatterCharts != null ? scatterCharts.size() : 0);
+            
+            if (para != null) {
+                log.info("段落不为空，开始处理");
+                // 删除段落
+                int paraIndex = doc.getBodyElements().indexOf(para);
+                log.info("段落索引: {}", paraIndex);
+                if (paraIndex >= 0) {
+                    doc.removeBodyElement(paraIndex);
+                    log.info("段落已删除");
+                } else {
+                    log.warn("段落不在文档的body元素列表中");
+                }
+                
+                // 插入散点图
+                if (scatterCharts != null && !scatterCharts.isEmpty()) {
+                    for (Map<String, Object> chartItem : scatterCharts) {
+                        try {
+                            log.info("处理散点图项: {}", chartItem);
+                            
+                            // 获取图表路径
+                            String chartPath = (String) chartItem.get("chartPath");
+                            log.info("图表路径: {}", chartPath);
+                            
+                            if (chartPath == null) {
+                                log.warn("图表路径为空，跳过");
+                                continue;
+                            }
+                            
+                            // 检查文件是否存在
+                            File chartFile = new File(chartPath);
+                            if (!chartFile.exists()) {
+                                log.warn("图表文件不存在: {}", chartPath);
+                                continue;
+                            }
+                            
+                            // 插入图表标题
+                            XWPFParagraph titlePara = doc.createParagraph();
+                            titlePara.setAlignment(ParagraphAlignment.CENTER);
+                            titlePara.setSpacingBefore(100);
+                            titlePara.setSpacingAfter(50);
+                            
+                            XWPFRun titleRun = titlePara.createRun();
+                            titleRun.setText("图" + chartItem.get("index") + " 课程目标" + chartItem.get("targetNum") + "达成度分布");
+                            titleRun.setBold(true);
+                            titleRun.setFontFamily("黑体");
+                            titleRun.setFontSize(12);
+                            titleRun.setColor("2E74B5"); // 蓝色主题
+                            
+                            // 插入图表图片
+                            XWPFParagraph imagePara = doc.createParagraph();
+                            imagePara.setAlignment(ParagraphAlignment.CENTER);
+                            imagePara.setSpacingAfter(100);
+                            
+                            try (FileInputStream fis = new FileInputStream(chartPath)) {
+                                XWPFRun imageRun = imagePara.createRun();
+                                imageRun.addPicture(fis, XWPFDocument.PICTURE_TYPE_PNG, "chart.png", 
+                                                  Units.toEMU(550), Units.toEMU(350));
+                                log.info("图表图片已插入");
+                            }
+                            
+                            // 插入图表描述
+                            XWPFParagraph descPara = doc.createParagraph();
+                            descPara.setAlignment(ParagraphAlignment.CENTER);
+                            descPara.setSpacingBefore(50);
+                            descPara.setSpacingAfter(100);
+                            
+                            XWPFRun descRun = descPara.createRun();
+                            descRun.setText("达成度：" + chartItem.get("achievement") + "，参与人数：" + chartItem.get("totalStudents"));
+                            descRun.setFontFamily("宋体");
+                            descRun.setFontSize(11);
+                            descRun.setColor("666666"); // 灰色文字
+                            
+                            // 添加空行
+                            doc.createParagraph().createRun().addBreak();
+                            
+                        } catch (Exception e) {
+                            log.error("插入单个散点图失败", e);
+                            // 继续处理下一个图表
+                        }
+                    }
+                } else {
+                    log.warn("散点图列表为空");
+                }
+            } else {
+                log.warn("段落为空");
+            }
+        } catch (Exception e) {
+            log.error("插入散点图失败", e);
+            throw e;
+        }
+    }
+    
+    /**
+     * 创建标题 - 美化版
+     */
+    private void createTitle(XWPFDocument doc, String title) {
+        XWPFParagraph paragraph = doc.createParagraph();
+        paragraph.setAlignment(ParagraphAlignment.CENTER);
+        paragraph.setSpacingBefore(200);
+        paragraph.setSpacingAfter(200);
+        
+        XWPFRun run = paragraph.createRun();
+        run.setText(title);
+        run.setBold(true);
+        run.setFontFamily("黑体");
+        run.setFontSize(22);
+        run.setColor("2E74B5"); // 蓝色主题
+        
+        addEmptyLine(doc);
+    }
+    
+    /**
+     * 添加章节标题 - 美化版
+     */
+    private void addSection(XWPFDocument doc, String title) {
+        XWPFParagraph paragraph = doc.createParagraph();
+        paragraph.setAlignment(ParagraphAlignment.LEFT);
+        paragraph.setSpacingBefore(150);
+        paragraph.setSpacingAfter(100);
+        
+        XWPFRun run = paragraph.createRun();
+        run.setText(title);
+        run.setBold(true);
+        run.setFontFamily("黑体");
+        run.setFontSize(16);
+        run.setColor("2E74B5"); // 蓝色主题
+        
+        addEmptyLine(doc);
+    }
+    
+    /**
+     * 创建课程基本信息部分
+     */
+    private void createCourseInfoSection(XWPFDocument doc, Map<String, Object> data) {
+        addSection(doc, "课程基本信息");
+        
+        // 创建两列表格
+        XWPFTable table = doc.createTable(8, 2);
+        
+        // 设置表格宽度
+        CTTblPr tblPr = table.getCTTbl().getTblPr();
+        if (tblPr == null) {
+            tblPr = table.getCTTbl().addNewTblPr();
+        }
+        CTTblWidth tblWidth = tblPr.getTblW();
+        if (tblWidth == null) {
+            tblWidth = tblPr.addNewTblW();
+        }
+        tblWidth.setW(BigInteger.valueOf(9072));
+        tblWidth.setType(STTblWidth.DXA);
+        
+        // 填充数据
+        String[][] courseInfo = {
+            {"课程名称", (String) data.get("courseName")},
+            {"课程编号", (String) data.get("courseCode")},
+            {"课程学分", (String) data.get("courseCredit")},
+            {"课程性质", (String) data.get("courseNature")},
+            {"开课年级", (String) data.get("grade")},
+            {"开课学期", (String) data.get("semester")},
+            {"负责教师", (String) data.get("responsibleTeacher")},
+            {"任课教师", (String) data.get("teacher")}
+        };
+        
+        for (int i = 0; i < courseInfo.length; i++) {
+            // 左列（标签）
+            XWPFTableCell leftCell = table.getRow(i).getCell(0);
+            setCellStyle(leftCell, courseInfo[i][0], true);
+            
+            // 右列（值）
+            XWPFTableCell rightCell = table.getRow(i).getCell(1);
+            setCellStyle(rightCell, courseInfo[i][1] != null ? courseInfo[i][1] : "", false);
+        }
+        
+        addEmptyLine(doc);
+    }
+    
+    /**
+     * 设置单元格样式 - 美化版
+     */
+    private void setCellStyle(XWPFTableCell cell, String text, boolean isLabel) {
+        // 清空单元格
+        while (cell.getParagraphs().size() > 0) {
+            cell.removeParagraph(0);
+        }
+        
+        XWPFParagraph para = cell.addParagraph();
+        para.setAlignment(ParagraphAlignment.LEFT);
+        
+        XWPFRun run = para.createRun();
+        run.setText(text);
+        run.setFontFamily("宋体");
+        run.setFontSize(11);
+        
+        if (isLabel) {
+            run.setBold(true);
+            run.setColor("4F81BD"); // 蓝色标签
+        } else {
+            run.setColor("000000"); // 黑色内容
+        }
+        
+        // 设置垂直对齐
+        cell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.CENTER);
+    }
+    
+    /**
+     * 创建表格部分
+     */
+    private void createTableSection(XWPFDocument doc, String title, List<RowRenderData> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        
+        addSection(doc, title);
+        
+        // 创建表格
+        int rowCount = rows.size();
+        int colCount = rows.get(0).getCells().size();
+        XWPFTable table = doc.createTable(rowCount, colCount);
+        
+        // 设置表格宽度
+        CTTblPr tblPr = table.getCTTbl().getTblPr();
+        if (tblPr == null) {
+            tblPr = table.getCTTbl().addNewTblPr();
+        }
+        CTTblWidth tblWidth = tblPr.getTblW();
+        if (tblWidth == null) {
+            tblWidth = tblPr.addNewTblW();
+        }
+        tblWidth.setW(BigInteger.valueOf(9072));
+        tblWidth.setType(STTblWidth.DXA);
+        
+        // 填充数据
+        for (int r = 0; r < rowCount; r++) {
+            RowRenderData rowData = rows.get(r);
+            List<CellRenderData> cells = rowData.getCells();
+            
+            for (int c = 0; c < colCount; c++) {
+                XWPFTableCell cell = table.getRow(r).getCell(c);
+                CellRenderData cellData = cells.get(c);
+                
+                // 获取文本
+                String cellText = "";
+                if (cellData != null) {
+                    List<ParagraphRenderData> paragraphs = cellData.getParagraphs();
+                    if (paragraphs != null && !paragraphs.isEmpty()) {
+                        List<RenderData> contents = paragraphs.get(0).getContents();
+                        if (contents != null && !contents.isEmpty() && contents.get(0) instanceof TextRenderData) {
+                            cellText = ((TextRenderData) contents.get(0)).getText();
+                        }
+                    }
+                }
+                
+                // 设置单元格内容和样式
+                setCellStyle(cell, cellText != null ? cellText : "", r == 0); // 第一行加粗
+            }
+        }
+        
+        addEmptyLine(doc);
+    }
+    
+    /**
+     * 创建成绩统计部分 - 美化版
+     */
+    private void createGradeStatisticsSection(XWPFDocument doc, Map<String, Object> data) {
+        addSection(doc, "三、成绩统计分析");
+        
+        // 创建表格展示统计数据
+        XWPFTable table = doc.createTable(2, 6);
+        
+        // 设置表格宽度
+        CTTblPr tblPr = table.getCTTbl().addNewTblPr();
+        CTTblWidth tblWidth = tblPr.addNewTblW();
+        tblWidth.setW(BigInteger.valueOf(9072));
+        tblWidth.setType(STTblWidth.DXA);
+        
+        // 表头
+        String[] headers = {"学生总数", "平均成绩", "中位数", "标准差", "最高分", "最低分"};
+        XWPFTableRow headerRow = table.getRow(0);
+        for (int i = 0; i < headers.length; i++) {
+            setHeaderCellStyleForTable(headerRow.getCell(i), headers[i]);
+        }
+        
+        // 数据行
+        XWPFTableRow dataRow = table.getRow(1);
+        String[] values = {
+            data.get("totalStudents") + "人",
+            String.format("%.2f分", data.get("avgScore")),
+            String.format("%.2f分", data.get("medianScore")),
+            String.format("%.2f", data.get("stdDev")),
+            String.format("%.2f分", data.get("maxScore")),
+            String.format("%.2f分", data.get("minScore"))
+        };
+        
+        for (int i = 0; i < values.length; i++) {
+            setDataCellStyleForTable(dataRow.getCell(i), values[i]);
+        }
+        
+        addEmptyLine(doc);
+    }
+    
+    /**
+     * 设置表头单元格样式（用于成绩统计表）
+     */
+    private void setHeaderCellStyleForTable(XWPFTableCell cell, String text) {
+        // 清空现有段落
+        while (cell.getParagraphs().size() > 0) {
+            cell.removeParagraph(0);
+        }
+        
+        XWPFParagraph para = cell.addParagraph();
+        para.setAlignment(ParagraphAlignment.CENTER);
+        
+        XWPFRun run = para.createRun();
+        run.setText(text);
+        run.setBold(true);
+        run.setFontFamily("微软雅黑");
+        run.setFontSize(10);
+        run.setColor("FFFFFF"); // 白色文字
+        
+        // 设置背景色
+        cell.setColor("4F81BD"); // 蓝色背景
+        
+        // 设置垂直对齐
+        cell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.CENTER);
+    }
+    
+    /**
+     * 设置数据单元格样式（用于成绩统计表）
+     */
+    private void setDataCellStyleForTable(XWPFTableCell cell, String text) {
+        // 清空现有段落
+        while (cell.getParagraphs().size() > 0) {
+            cell.removeParagraph(0);
+        }
+        
+        XWPFParagraph para = cell.addParagraph();
+        para.setAlignment(ParagraphAlignment.CENTER);
+        
+        XWPFRun run = para.createRun();
+        run.setText(text);
+        run.setFontFamily("宋体");
+        run.setFontSize(10);
+        run.setColor("000000"); // 黑色文字
+        
+        // 设置垂直对齐
+        cell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.CENTER);
+    }
+    
+    /**
+     * 添加图片（如果文件存在）
+     */
+    private void addImageIfExists(XWPFDocument doc, String imagePath, String caption) {
+        File imageFile = new File(imagePath);
+        if (imageFile.exists()) {
+            addImageFromFile(doc, imagePath, caption);
+        }
+    }
+    
+    /**
+     * 从文件添加图片 - 美化版
+     */
+    private void addImageFromFile(XWPFDocument doc, String imagePath, String caption) {
+        try {
+            // 添加图片标题
+            XWPFParagraph captionPara = doc.createParagraph();
+            captionPara.setAlignment(ParagraphAlignment.CENTER);
+            captionPara.setSpacingBefore(100);
+            captionPara.setSpacingAfter(50);
+            
+            XWPFRun captionRun = captionPara.createRun();
+            captionRun.setText(caption);
+            captionRun.setBold(true);
+            captionRun.setFontFamily("黑体");
+            captionRun.setFontSize(12);
+            captionRun.setColor("2E74B5"); // 蓝色主题
+            
+            // 添加图片
+            XWPFParagraph imagePara = doc.createParagraph();
+            imagePara.setAlignment(ParagraphAlignment.CENTER);
+            imagePara.setSpacingAfter(100);
+            
+            try (FileInputStream fis = new FileInputStream(imagePath)) {
+                XWPFRun imageRun = imagePara.createRun();
+                imageRun.addPicture(fis, XWPFDocument.PICTURE_TYPE_PNG, "image.png", 
+                                  Units.toEMU(550), Units.toEMU(350));
+            }
+            
+            addEmptyLine(doc);
+        } catch (Exception e) {
+            log.error("添加图片失败: {}", imagePath, e);
+        }
+    }
+    
+    /**
+     * 添加普通段落
+     */
+    private void addParagraph(XWPFDocument doc, String text, String fontFamily, int fontSize, boolean bold) {
+        XWPFParagraph para = doc.createParagraph();
+        para.setAlignment(ParagraphAlignment.LEFT);
+        XWPFRun run = para.createRun();
+        run.setText(text);
+        run.setFontFamily(fontFamily);
+        run.setFontSize(fontSize);
+        run.setBold(bold);
+    }
+    
+    /**
+     * 添加空行
+     */
+    private void addEmptyLine(XWPFDocument doc) {
+        doc.createParagraph().createRun().addBreak();
+    }
+    
+    /**
+     * 从 CSV 行数据中获取列值（支持多种列名）
+     * @param cols CSV列数据数组
+     * @param columnIndexMap 列名到索引的映射
+     * @param possibleNames 可能的列名列表
+     * @param defaultIndex 默认索引（如果找不到列名）
+     * @return 列值，如果不存在则返回 "-"
+     */
+    private String getColumnValue(String[] cols, Map<String, Integer> columnIndexMap, 
+                                  String[] possibleNames, int defaultIndex) {
+        // 尝试从列名映射中查找
+        for (String name : possibleNames) {
+            if (columnIndexMap.containsKey(name)) {
+                int index = columnIndexMap.get(name);
+                if (index >= 0 && index < cols.length) {
+                    return cols[index].trim();
+                }
+            }
+        }
+        
+        // 如果找不到，使用默认索引
+        if (defaultIndex >= 0 && defaultIndex < cols.length) {
+            return cols[defaultIndex].trim();
+        }
+        
+        return "-";
+    }
+    
+    /**
+     * 从 CSV 行数据中获取列值（单个列名）
+     */
+    private String getColumnValue(String[] cols, Map<String, Integer> columnIndexMap, 
+                                  String columnName, int defaultIndex) {
+        return getColumnValue(cols, columnIndexMap, new String[]{columnName}, defaultIndex);
+    }
 } 
