@@ -10,14 +10,17 @@ COPY ruoyi-quartz/ ruoyi-quartz/
 COPY ruoyi-system/ ruoyi-system/
 RUN mvn clean package -DskipTests
 
-# 改为 Debian 基础镜像，避免 Alpine 的 AWT 兼容问题
 FROM eclipse-temurin:17-jre
 
-# Debian 下安装 Python3、中文字体
+# 安装系统依赖：Python3、中文字体、Liberation字体（替代Arial等）、DejaVu字体
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip fontconfig fonts-wqy-zenhei && \
-    fc-cache -f && \
-    pip3 install --no-cache-dir --break-system-packages \
+    python3 python3-pip \
+    fontconfig \
+    fonts-wqy-zenhei \
+    fonts-liberation \
+    fonts-dejavu-core \
+    && fc-cache -fv \
+    && pip3 install --no-cache-dir --break-system-packages \
         contourpy==1.3.3 \
         cycler==0.12.1 \
         fonttools==4.62.1 \
@@ -33,7 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tzdata==2026.1 \
     && rm -rf /var/lib/apt/lists/*
 
+# 设置环境变量
 ENV PYTHON_EXECUTABLE=python3 \
+    MPLBACKEND=Agg \
     JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
 
 RUN mkdir -p /app/uploadPath/config && chmod -R 777 /app/uploadPath
