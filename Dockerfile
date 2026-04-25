@@ -12,10 +12,11 @@ RUN mvn clean package -DskipTests
 
 FROM eclipse-temurin:17-jre-alpine
 
-# === 安装系统依赖（含中文字体 + DejaVu 基础字体） ===
+# === 安装完整图形依赖 ===
 RUN apk add --no-cache python3 py3-pip \
-    fontconfig wqy-zenhei ttf-dejavu && \
-    fc-cache -f && \
+    fontconfig wqy-zenhei ttf-dejavu freetype \
+    libx11 libxrender libxext && \
+    fc-cache -f -v && \
     pip3 install --no-cache-dir --break-system-packages \
         contourpy==1.3.3 \
         cycler==0.12.1 \
@@ -31,12 +32,12 @@ RUN apk add --no-cache python3 py3-pip \
         six==1.17.0 \
         tzdata==2026.1
 
-# 环境变量：Python 解释器路径 + JVM 使用 headless 模式
-ENV PYTHON_EXECUTABLE=python3 \
-    JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+ENV PYTHON_EXECUTABLE=python3
 
 RUN mkdir -p /app/uploadPath/config && chmod -R 777 /app/uploadPath
 WORKDIR /app
 COPY --from=builder /app/ruoyi-admin/target/ruoyi-admin.jar app.jar
 EXPOSE 8080
-ENTRYPOINT ["sh", "-c", "java -jar app.jar --server.port=${PORT:-8080}"]
+
+# 启动命令中强制 headless 模式
+ENTRYPOINT ["sh", "-c", "java -Djava.awt.headless=true -jar app.jar --server.port=${PORT:-8080}"]
