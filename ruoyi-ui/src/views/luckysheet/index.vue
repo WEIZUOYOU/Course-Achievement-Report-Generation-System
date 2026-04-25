@@ -17,7 +17,7 @@ export default {
   name: "Luckysheet",
   data() {
     return {
-      url: process.env.VUE_APP_BASE_API + "/luckysheet.html",
+      url: '/luckysheet.html',
     };
   },
   methods: {
