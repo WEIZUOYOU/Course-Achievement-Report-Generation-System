@@ -1,5 +1,4 @@
 FROM maven:3.8-openjdk-17 AS builder
-
 WORKDIR /app
 COPY pom.xml .
 COPY ruoyi-admin/ ruoyi-admin/
@@ -10,13 +9,12 @@ COPY ruoyi-quartz/ ruoyi-quartz/
 COPY ruoyi-system/ ruoyi-system/
 RUN mvn clean package -DskipTests
 
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre
 
-# === 安装完整图形依赖 ===
-RUN apk add --no-cache python3 py3-pip \
-    fontconfig wqy-zenhei ttf-dejavu freetype \
-    libx11 libxrender libxext && \
-    fc-cache -f -v && \
+# Debian 下安装 Python3、中文字体
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip fontconfig fonts-wqy-zenhei && \
+    fc-cache -f && \
     pip3 install --no-cache-dir --break-system-packages \
         contourpy==1.3.3 \
         cycler==0.12.1 \
@@ -30,14 +28,14 @@ RUN apk add --no-cache python3 py3-pip \
         pyparsing==3.3.2 \
         python-dateutil==2.9.0.post0 \
         six==1.17.0 \
-        tzdata==2026.1
+        tzdata==2026.1 \
+    && rm -rf /var/lib/apt/lists/*
 
-ENV PYTHON_EXECUTABLE=python3
+ENV PYTHON_EXECUTABLE=python3 \
+    JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
 
 RUN mkdir -p /app/uploadPath/config && chmod -R 777 /app/uploadPath
 WORKDIR /app
 COPY --from=builder /app/ruoyi-admin/target/ruoyi-admin.jar app.jar
 EXPOSE 8080
-
-# 启动命令中强制 headless 模式
-ENTRYPOINT ["sh", "-c", "java -Djava.awt.headless=true -jar app.jar --server.port=${PORT:-8080}"]
+ENTRYPOINT ["sh", "-c", "java -jar app.jar --server.port=${PORT:-8080}"]
