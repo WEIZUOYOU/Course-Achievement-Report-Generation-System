@@ -727,7 +727,7 @@ export default {
       isStep6Valid: false,
 
       // LuckySheet 相关
-      luckysheetUrl: process.env.VUE_APP_BASE_API + "/luckysheet.html",
+      luckysheetUrl: '/luckysheet.html',
 
       // 配置文件
       examConfig: null,
@@ -4321,7 +4321,7 @@ export default {
       this.table.isDataValid = false
       
       // 重置iframe URL以触发重新加载
-      this.luckysheetUrl = `${process.env.VUE_APP_BASE_API}/luckysheet.html?t=${Date.now()}`
+      this.luckysheetUrl = `/luckysheet.html?t=${Date.now()}`;
       
       // 标记为正在加载
       this.step7.isLoading = true
