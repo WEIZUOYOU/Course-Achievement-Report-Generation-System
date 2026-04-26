@@ -11,6 +11,11 @@
     <packaging>jar</packaging>
     <artifactId>ruoyi-admin</artifactId>
 
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    </properties>
+
     <description>
         web服务入口
     </description>

@@ -11,12 +11,14 @@
       <right-panel>
         <settings/>
       </right-panel>
+      <ai-chat />
     </div>
   </div>
 </template>
 
 <script>
 import RightPanel from '@/components/RightPanel'
+import AiChat from '@/components/AiChat'
 import { AppMain, Navbar, Settings, Sidebar, TagsView } from './components'
 import ResizeMixin from './mixin/ResizeHandler'
 import { mapState } from 'vuex'
@@ -30,7 +32,8 @@ export default {
     RightPanel,
     Settings,
     Sidebar,
-    TagsView
+    TagsView,
+    AiChat
   },
   mixins: [ResizeMixin],
   computed: {
