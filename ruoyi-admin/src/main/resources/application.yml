@@ -151,6 +151,13 @@ xss:
   # 匹配链接
   urlPatterns: /system/*,/monitor/*,/tool/*
 
+# AI 配置（DeepSeek：密钥建议用环境变量 DEEPSEEK_API_KEY，勿提交到仓库）
+ai:
+  deepseek:
+    api-key: sk-9b8b0d411bca42fc8304c0d96716c3b1
+    api-url: https://api.deepseek.com/v1/chat/completions
+    model: deepseek-chat
+
 # Python配置
 python:
   # Python可执行文件路径，可以使用以下任一方式：
